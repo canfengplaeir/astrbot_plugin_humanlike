@@ -6,11 +6,11 @@ const manualTags = document.getElementById("manualTags");
 const aiTags = document.getElementById("aiTags");
 const genBtn = document.getElementById("genBtn");
 const genStatus = document.getElementById("genStatus");
-const personaSelect = document.getElementById("personaSelect");
 const clearManual = document.getElementById("clearManual");
 const clearAi = document.getElementById("clearAi");
 const manualCount = document.getElementById("manualCount");
 const aiCount = document.getElementById("aiCount");
+const personaSelect = document.getElementById("personaSelect");
 
 await bridge.ready();
 
@@ -23,37 +23,25 @@ async function loadKeywords() {
 function renderManual(keywords) {
   manualCount.textContent = keywords.length ? `共 ${keywords.length} 个` : "";
   clearManual.style.display = keywords.length ? "" : "none";
-  if (!keywords.length) {
-    manualTags.innerHTML = '<span class="empty">暂无关键词</span>';
-    return;
-  }
-  manualTags.innerHTML = keywords
-    .map(
-      (kw) =>
-        `<span class="tag manual">${esc(kw)}<button class="tag-del" data-kw="${escAttr(kw)}" data-type="manual">×</button></span>`
-    )
-    .join("");
-  bindTagEvents();
+  if (!keywords.length) { manualTags.innerHTML = '<span class="empty-msg">暂无手动关键词</span>'; return; }
+  manualTags.innerHTML = keywords.map(kw =>
+    `<span class="tag manual">${esc(kw)}<button class="tag-del" data-kw="${escAttr(kw)}" data-type="manual">×</button></span>`
+  ).join("");
+  bindDel();
 }
 
 function renderAi(keywords) {
   aiCount.textContent = keywords.length ? `共 ${keywords.length} 个` : "";
   clearAi.style.display = keywords.length ? "" : "none";
-  if (!keywords.length) {
-    aiTags.innerHTML = '<span class="empty">暂无，点击下方按钮生成</span>';
-    return;
-  }
-  aiTags.innerHTML = keywords
-    .map(
-      (kw) =>
-        `<span class="tag ai">${esc(kw)}<button class="tag-del" data-kw="${escAttr(kw)}" data-type="ai">×</button></span>`
-    )
-    .join("");
-  bindTagEvents();
+  if (!keywords.length) { aiTags.innerHTML = '<span class="empty-msg">暂无，选择人格后点击生成</span>'; return; }
+  aiTags.innerHTML = keywords.map(kw =>
+    `<span class="tag ai">${esc(kw)}<button class="tag-del" data-kw="${escAttr(kw)}" data-type="ai">×</button></span>`
+  ).join("");
+  bindDel();
 }
 
-function bindTagEvents() {
-  document.querySelectorAll(".tag-del").forEach((btn) => {
+function bindDel() {
+  document.querySelectorAll(".tag-del").forEach(btn => {
     btn.onclick = async () => {
       await bridge.apiPost("keywords/remove", { keyword: btn.dataset.kw });
       loadKeywords();
@@ -71,58 +59,44 @@ async function addKeyword() {
 }
 
 addBtn.onclick = addKeyword;
-manualInput.onkeydown = (e) => { if (e.key === "Enter") addKeyword(); };
+manualInput.onkeydown = e => { if (e.key === "Enter") addKeyword(); };
 
 genBtn.onclick = async () => {
   genBtn.disabled = true;
-  genBtn.innerHTML = '<span class="spinner"></span>生成中...';
+  genBtn.innerHTML = '<span class="spinner"></span>';
   genStatus.textContent = "";
-  genStatus.className = "status";
+  genStatus.className = "status-line";
   try {
-    const result = await bridge.apiPost("keywords/generate", {
-      persona_id: personaSelect.value,
-    });
+    const result = await bridge.apiPost("keywords/generate", { persona_id: personaSelect.value });
     if (result.ok && result.keywords) {
-      genStatus.textContent = `✅ 已生成 ${result.keywords.length} 个关键词`;
-      genStatus.className = "status success";
+      genStatus.textContent = `已生成 ${result.keywords.length} 个关键词`;
+      genStatus.className = "status-line success";
     } else {
-      genStatus.textContent = "❌ 生成失败";
-      genStatus.className = "status error";
+      genStatus.textContent = "生成失败";
+      genStatus.className = "status-line error";
     }
   } catch (e) {
-    genStatus.textContent = `❌ ${e.message || "请求失败"}`;
-    genStatus.className = "status error";
+    genStatus.textContent = e.message || "请求失败";
+    genStatus.className = "status-line error";
   }
   genBtn.disabled = false;
-  genBtn.innerHTML = "🤖 生成关键词";
+  genBtn.innerHTML = "生成";
   loadKeywords();
 };
 
-clearManual.onclick = async () => {
-  await bridge.apiPost("keywords/clear", { target: "manual" });
-  loadKeywords();
-};
-clearAi.onclick = async () => {
-  await bridge.apiPost("keywords/clear", { target: "ai" });
-  loadKeywords();
-};
-
-function esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
-function escAttr(s) { return s.replace(/"/g, "&quot;"); }
+clearManual.onclick = async () => { await bridge.apiPost("keywords/clear", { target: "manual" }); loadKeywords(); };
+clearAi.onclick = async () => { await bridge.apiPost("keywords/clear", { target: "ai" }); loadKeywords(); };
 
 async function loadPersonas() {
   try {
     const personas = await bridge.apiGet("keywords/personas");
-    personaSelect.innerHTML = personas
-      .map((p) => `<option value="${escAttr(p.id)}">${esc(p.id)}</option>`)
-      .join("");
-    if (!personas.length) {
-      personaSelect.innerHTML = '<option value="">无可用人格</option>';
-    }
-  } catch {
-    personaSelect.innerHTML = '<option value="">（默认）</option>';
-  }
+    personaSelect.innerHTML = personas.map(p => `<option value="${escAttr(p.id)}">${esc(p.id)}</option>`).join("");
+    if (!personas.length) personaSelect.innerHTML = '<option value="">（默认人格）</option>';
+  } catch { personaSelect.innerHTML = '<option value="">（默认）</option>'; }
 }
+
+function esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
+function escAttr(s) { return s.replace(/"/g, "&quot;"); }
 
 loadPersonas();
 loadKeywords();

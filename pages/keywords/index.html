@@ -3,44 +3,42 @@
 <head>
   <meta charset="utf-8" />
   <title>关键词管理</title>
-  <link rel="stylesheet" href="./style.css" />
+  <link rel="stylesheet" href="../shared.css" />
 </head>
 <body>
   <div class="container">
-    <div class="header">
-      <h2>📋 关键词管理</h2>
-      <p>机器人会对包含这些关键词的消息更感兴趣，更愿意参与群聊讨论</p>
+    <div class="page-hd">
+      <h2>关键词管理</h2>
+      <p>机器人会对包含这些词的消息更感兴趣，更愿意参与讨论</p>
     </div>
 
     <div class="card">
-      <h3>✏️ 手动配置</h3>
+      <h3>手动添加</h3>
       <p class="hint">手动添加你希望机器人关注的关键词</p>
       <div class="input-row">
-        <input type="text" id="manualInput" placeholder="输入关键词，回车或点击添加" />
+        <input type="text" id="manualInput" placeholder="输入关键词，回车添加" />
         <button class="btn btn-primary" id="addBtn">添加</button>
       </div>
       <div class="tags" id="manualTags"></div>
       <div class="actions">
-        <button class="btn btn-text" id="clearManual">清空全部</button>
-        <span style="font-size:12px;color:var(--text-secondary)" id="manualCount"></span>
+        <button class="btn-ghost" id="clearManual">清空手动</button>
+        <span style="font-size:12px;color:var(--muted)" id="manualCount"></span>
       </div>
     </div>
 
     <div class="card">
-      <h3>🤖 AI 生成关键词</h3>
-      <p class="hint">选择一个人格，AI 将根据该人格设定自动生成相关话题关键词</p>
+      <h3>AI 生成</h3>
+      <p class="hint">选择人格，AI 根据该人格设定自动生成相关话题关键词</p>
       <div class="input-row">
-        <select id="personaSelect" style="flex:1">
-          <option value="">加载中...</option>
-        </select>
-        <button class="btn btn-primary" id="genBtn">🤖 生成</button>
+        <select id="personaSelect"><option value="">加载中...</option></select>
+        <button class="btn btn-primary" id="genBtn">生成</button>
       </div>
       <div class="tags" id="aiTags"></div>
       <div class="actions">
-        <button class="btn btn-text" id="clearAi">清空 AI 关键词</button>
-        <span style="font-size:12px;color:var(--text-secondary)" id="aiCount"></span>
+        <button class="btn-ghost" id="clearAi">清空 AI</button>
+        <span style="font-size:12px;color:var(--muted)" id="aiCount"></span>
       </div>
-      <div id="genStatus" class="status"></div>
+      <div class="status-line" id="genStatus"></div>
     </div>
   </div>
   <script type="module" src="./app.js"></script>
