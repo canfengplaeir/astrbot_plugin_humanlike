@@ -164,6 +164,7 @@ class HumanLikePlugin(Star):
                 if self.accum.enabled:
                     self.accum.add_to_buffer(state, event, msg_text,
                                              event.get_sender_name() or "未知")
+                    self._append_context(state, event.get_sender_name() or "未知", msg_text)
                     state.last_msg_time = now
                     self.accum.cancel_timer(state)
                     await self.accum.start_timer(group_id, state,
@@ -263,6 +264,12 @@ class HumanLikePlugin(Star):
         async with state.lock:
             state.pending_messages.clear()
             state.silence_timer = None
+            for m in pending:
+                state.conversation_context.append({
+                    "sender": m["sender"], "text": m["text"],
+                })
+            if len(state.conversation_context) > 12:
+                state.conversation_context = state.conversation_context[-12:]
 
         last_event = pending[-1].get("event") if pending else None
         if not last_event:
@@ -294,10 +301,6 @@ class HumanLikePlugin(Star):
         async with state.lock:
             self._record_reply(state, now=time.time(),
                                persona_name=persona_name)
-            for m in pending:
-                state.conversation_context.append({
-                    "sender": m["sender"], "text": m["text"],
-                })
             state.conversation_context.append({
                 "sender": persona_name or self.config.get("reply_engine", {}).get("bot_name", "bot"),
                 "text": reply,
