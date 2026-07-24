@@ -129,7 +129,7 @@ class HumanLikePlugin(Star):
             persona_name = await self.persona.name(event)
 
         if self.config.get("reply_engine", {}).get("use_ai_keywords", False):
-            if not self.flow.has_ai_keywords and self._keywords_loaded and not self._keywords_generating:
+            if hasattr(self.flow, 'has_ai_keywords') and not self.flow.has_ai_keywords and self._keywords_loaded and not self._keywords_generating:
                 asyncio.ensure_future(self._gen_and_save_keywords(event))
 
         now = time.time()
