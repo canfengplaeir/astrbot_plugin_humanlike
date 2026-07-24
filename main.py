@@ -584,7 +584,7 @@ class HumanLikePlugin(Star):
                 line.strip().lstrip("0123456789.、-•· ") for line in text.split("\n")
                 if line.strip()
             ]
-            keywords = [kw for kw in keywords if len(kw) <= 8][:15]
+            keywords = [kw for kw in keywords if len(kw) <= 8][:count]
 
             if keywords:
                 self.flow.set_ai_keywords(keywords)

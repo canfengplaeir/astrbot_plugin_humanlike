@@ -232,8 +232,9 @@ class AIClient:
                 if line.strip()
             ]
             keywords = [kw for kw in keywords if len(kw) <= 8]
+            keywords = keywords[:count]
             logger.info(f"AI生成关键词 ({len(keywords)}个): {keywords[:10]}")
-            return keywords[:max(count, len(keywords))]
+            return keywords
         except Exception as e:
             logger.error(f"关键词生成失败: {e}")
             return []
