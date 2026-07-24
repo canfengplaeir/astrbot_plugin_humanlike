@@ -691,6 +691,11 @@ class HumanLikePlugin(Star):
 
         self.flow._interest_keywords = self.config.get("interest_keywords", []) or []
         self.flow._cfg = self.config.get("flow_engine", {})
+        self.flow._reply_cfg = self.config.get("reply_engine", {})
+        self.debounce._dc = self.config.get("debounce", {})
+        self.debounce._fc = self.config.get("flow_engine", {})
+        self.accum._cfg = self.config.get("accumulation", {})
+        self.accum._reply_cfg = self.config.get("reply_engine", {})
         return json_response({"ok": True})
 
     async def terminate(self):
