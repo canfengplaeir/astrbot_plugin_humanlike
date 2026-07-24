@@ -62,6 +62,10 @@ class HumanLikePlugin(Star):
             f"/{PLUGIN_NAME}/status/groups", self._api_status, ["GET"], "群聊状态")
         context.register_web_api(
             f"/{PLUGIN_NAME}/keywords/test", self._api_kw_test, ["POST"], "测试关键词")
+        context.register_web_api(
+            f"/{PLUGIN_NAME}/settings", self._api_settings_get, ["GET"], "读取全部设置")
+        context.register_web_api(
+            f"/{PLUGIN_NAME}/settings/save", self._api_settings_save, ["POST"], "保存设置")
 
         asyncio.ensure_future(self._init_keywords())
 
@@ -652,6 +656,42 @@ class HumanLikePlugin(Star):
             if kw and kw.lower() in text:
                 hits.append(kw)
         return json_response({"hits": hits, "total_keywords": len(all_kw)})
+
+    async def _api_settings_get(self):
+        return json_response({
+            "reply_engine": dict(self.config.get("reply_engine", {})),
+            "flow_engine": dict(self.config.get("flow_engine", {})),
+            "debounce": dict(self.config.get("debounce", {})),
+            "accumulation": dict(self.config.get("accumulation", {})),
+            "interest_keywords": self.config.get("interest_keywords", []) or [],
+            "reply_style": self.config.get("reply_style", ""),
+            "ai_judge_prompt": self.config.get("ai_judge_prompt", ""),
+            "ai_reply_prompt": self.config.get("ai_reply_prompt", ""),
+        })
+
+    async def _api_settings_save(self):
+        body = await request.json(default={})
+        changed = False
+
+        for section in ["reply_engine", "flow_engine", "debounce", "accumulation"]:
+            if section in body and isinstance(body[section], dict):
+                self.config[section] = body[section]
+                changed = True
+
+        for key in ["interest_keywords", "reply_style", "ai_judge_prompt", "ai_reply_prompt"]:
+            if key in body:
+                self.config[key] = body[key]
+                changed = True
+
+        if changed:
+            try:
+                self.config.save_config()
+            except Exception as e:
+                return error_response(f"保存失败: {e}")
+
+        self.flow._interest_keywords = self.config.get("interest_keywords", []) or []
+        self.flow._cfg = self.config.get("flow_engine", {})
+        return json_response({"ok": True})
 
     async def terminate(self):
         logger.info("拟人化群聊助手插件已卸载")

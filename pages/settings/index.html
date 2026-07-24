@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>插件设置</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div class="container">
+    <div class="page-hd">
+      <h2>插件设置</h2>
+      <p>所有配置项可在此操作，修改后点击底部保存</p>
+    </div>
+
+    <form id="settingsForm" autocomplete="off">
+      <!-- 回复引擎 -->
+      <div class="card">
+        <h3>回复引擎</h3>
+        <div class="field">
+          <label><span>接管群聊回复</span><input type="checkbox" name="reply_engine.override_group_replies" /></label>
+          <span class="hint">开启后机器人不再回复每条消息，交给心流引擎判断</span>
+        </div>
+        <div class="field">
+          <label><span>放行指令</span><input type="checkbox" name="reply_engine.allow_command_pass" /></label>
+          <span class="hint">以 / 开头的消息不拦截</span>
+        </div>
+        <div class="field">
+          <label><span>继承人格</span><input type="checkbox" name="reply_engine.inherit_persona" /></label>
+          <span class="hint">读取AstrBot人格管理中的设定</span>
+        </div>
+        <div class="field">
+          <label><span>启用AI判断</span><input type="checkbox" name="reply_engine.enable_ai_judge" /></label>
+          <span class="hint">关闭则仅用启发式规则</span>
+        </div>
+        <div class="field">
+          <label><span>记录对话</span><input type="checkbox" name="reply_engine.record_conversation" /></label>
+          <span class="hint">回复写入对话历史</span>
+        </div>
+        <div class="field">
+          <label><span>AI关键词</span><input type="checkbox" name="reply_engine.use_ai_keywords" /></label>
+          <span class="hint">启用AI生成关键词</span>
+        </div>
+        <div class="field">
+          <label>关键词数量</label>
+          <input type="number" name="reply_engine.keyword_count" min="3" max="30" class="inp" />
+        </div>
+        <div class="field">
+          <label>机器人名字(备用)</label>
+          <input type="text" name="reply_engine.bot_name" class="inp" />
+        </div>
+        <div class="field">
+          <label>回复风格</label>
+          <select name="reply_style" class="inp">
+            <option>随性自然</option><option>活泼可爱</option><option>高冷简洁</option><option>幽默风趣</option><option>温柔体贴</option><option>毒舌吐槽</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- 心流引擎 -->
+      <div class="card">
+        <h3>心流引擎</h3>
+        <div class="range-field">
+          <label>回复阈值 <output></output></label>
+          <input type="range" name="flow_engine.flow_reply_threshold" min="10" max="80" step="5" />
+        </div>
+        <div class="range-field">
+          <label>衰减速度 <output></output></label>
+          <input type="range" name="flow_engine.flow_decay_rate" min="0.1" max="1" step="0.05" />
+        </div>
+        <div class="field">
+          <label>初始心流</label>
+          <input type="number" name="flow_engine.initial_flow" min="0" max="100" class="inp" />
+        </div>
+        <div class="range-field">
+          <label>@提及加成 <output></output></label>
+          <input type="range" name="flow_engine.flow_boost_mention" min="10" max="60" step="5" />
+        </div>
+        <div class="range-field">
+          <label>关键词加成 <output></output></label>
+          <input type="range" name="flow_engine.flow_boost_keyword" min="5" max="40" step="5" />
+        </div>
+        <div class="range-field">
+          <label>问句加成 <output></output></label>
+          <input type="range" name="flow_engine.flow_boost_question" min="5" max="40" step="5" />
+        </div>
+        <div class="range-field">
+          <label>活跃加成 <output></output></label>
+          <input type="range" name="flow_engine.flow_boost_activity" min="1" max="10" step="1" />
+        </div>
+        <div class="range-field">
+          <label>发言后衰减 <output></output></label>
+          <input type="range" name="flow_engine.flow_decay_on_reply" min="5" max="50" step="5" />
+        </div>
+        <div class="range-field">
+          <label>随机沉默(%) <output></output></label>
+          <input type="range" name="flow_engine.random_silence_probability" min="0" max="40" step="5" />
+        </div>
+      </div>
+
+      <!-- 防抖 -->
+      <div class="card">
+        <h3>防抖设置</h3>
+        <div class="range-field">
+          <label>最小间隔(秒) <output></output></label>
+          <input type="range" name="debounce.min_reply_cooldown" min="5" max="60" step="1" />
+        </div>
+        <div class="range-field">
+          <label>窗口最大发言 <output></output></label>
+          <input type="range" name="debounce.max_replies_per_window" min="2" max="20" step="1" />
+        </div>
+        <div class="field">
+          <label>时间窗口(秒)</label>
+          <input type="number" name="debounce.reply_window_seconds" min="60" max="600" class="inp" />
+        </div>
+        <div class="field">
+          <label><span>动态冷却</span><input type="checkbox" name="debounce.dynamic_cooldown_enabled" /></label>
+        </div>
+        <div class="field">
+          <label>冷却下限(秒)</label>
+          <input type="number" name="debounce.min_dynamic_cooldown" min="3" max="30" class="inp" />
+        </div>
+        <div class="field">
+          <label>冷却上限(秒)</label>
+          <input type="number" name="debounce.max_dynamic_cooldown" min="20" max="120" class="inp" />
+        </div>
+      </div>
+
+      <!-- 累积 -->
+      <div class="card">
+        <h3>累积模式</h3>
+        <div class="field">
+          <label><span>启用累积</span><input type="checkbox" name="accumulation.enabled" /></label>
+          <span class="hint">消息爆发时缓冲，安静后批量处理</span>
+        </div>
+        <div class="range-field">
+          <label>沉默阈值(秒) <output></output></label>
+          <input type="range" name="accumulation.silence_threshold" min="2" max="20" step="1" />
+        </div>
+        <div class="range-field">
+          <label>立即回复阈值 <output></output></label>
+          <input type="range" name="accumulation.immediate_flow_threshold" min="50" max="100" step="5" />
+        </div>
+        <div class="field">
+          <label>缓冲上限(条)</label>
+          <input type="number" name="accumulation.max_buffer_size" min="5" max="50" class="inp" />
+        </div>
+      </div>
+
+      <div class="actions">
+        <button type="submit" class="btn btn-primary" id="saveBtn">保存设置</button>
+        <span class="status-line" id="saveStatus"></span>
+      </div>
+    </form>
+  </div>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
