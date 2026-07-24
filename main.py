@@ -617,7 +617,9 @@ class HumanLikePlugin(Star):
     async def _api_status(self):
         now = time.time()
         groups = []
-        for gid, s in self._states.items():
+        async with self._lock:
+            state_items = list(self._states.items())
+        for gid, s in state_items:
             async with s.lock:
                 win = self.config.get("debounce", {}).get("reply_window_seconds", 300)
                 max_msgs = self.config.get("debounce", {}).get("max_replies_per_window", 8)
