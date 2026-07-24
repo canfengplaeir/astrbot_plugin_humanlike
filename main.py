@@ -1,6 +1,11 @@
 import asyncio
+import os
+import sys
 import time
 from typing import Dict
+
+# 确保插件子目录可被导入
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star
