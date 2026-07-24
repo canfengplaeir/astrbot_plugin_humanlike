@@ -336,15 +336,16 @@ class HumanLikePlugin(Star):
         )
 
         now = time.time()
-        debounce_ok = self.debounce.check(state, now)
-        if not debounce_ok:
-            state.retry_count += 1
-            if state.retry_count > 2:
-                logger.info(f"[群:{group_id}] 批处理: 重试{state.retry_count}次，跳过防抖直接交AI判断")
-            else:
-                logger.info(f"[群:{group_id}] 批处理: 防抖拦截({state.retry_count}/3)，20s后重试")
-                await self._start_retry_timer(group_id, state)
-                return
+        async with state.lock:
+            debounce_ok = self.debounce.check(state, now)
+            if not debounce_ok:
+                state.retry_count += 1
+                if state.retry_count > 2:
+                    logger.info(f"[群:{group_id}] 批处理: 重试{state.retry_count}次，跳过防抖直接交AI判断")
+                else:
+                    logger.info(f"[群:{group_id}] 批处理: 防抖拦截({state.retry_count}/3)，20s后重试")
+                    await self._start_retry_timer(group_id, state)
+                    return
 
         async with state.lock:
             state.pending_messages.clear()
@@ -666,7 +667,7 @@ class HumanLikePlugin(Star):
         for gid, s in state_items:
             async with s.lock:
                 win = self.config.get("debounce", {}).get("reply_window_seconds", 300)
-                max_msgs = self.config.get("debounce", {}).get("max_replies_per_window", 8)
+                max_msgs = self.config.get("debounce", {}).get("max_replies_per_window", 12)
                 recent = len([t for t in s.reply_timestamps if now - t < win])
                 last_ago = int(now - s.last_reply_time) if s.last_reply_time > 0 else -1
                 groups.append({
