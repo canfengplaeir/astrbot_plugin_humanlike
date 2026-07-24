@@ -531,16 +531,7 @@ class HumanLikePlugin(Star):
                 self._keywords_generating = False
                 return error_response("无人格设定，请先在人格管理中创建人格")
 
-            pid = None
-            try:
-                providers = self.context.get_all_providers()
-                if providers:
-                    p = providers[0]
-                    pid = (getattr(getattr(p, 'meta', None), 'id', None)
-                           or getattr(p, 'name', None)
-                           or str(p))
-            except Exception:
-                pass
+            pid = await self.context.get_current_chat_provider_id(umo=None)
             if not pid:
                 self._keywords_generating = False
                 return error_response("无可用AI提供商，请先在WebUI配置模型")
