@@ -26,10 +26,10 @@ class FlowEngine:
 
     @property
     def reply_threshold(self) -> float:
-        return float(self._cfg.get("flow_reply_threshold", 30))
+        return float(self._cfg.get("flow_reply_threshold", 20))
 
     def decay_rate(self) -> float:
-        return float(self._cfg.get("flow_decay_rate", 0.25))
+        return float(self._cfg.get("flow_decay_rate", 0.15))
 
     def update(self, state, event, message_text: str, current_time: float,
                persona_name: str = ""):
@@ -50,7 +50,7 @@ class FlowEngine:
                 break
 
         if is_mentioned:
-            boost = float(self._cfg.get("flow_boost_mention", 35))
+            boost = float(self._cfg.get("flow_boost_mention", 45))
             state.flow_level = min(100, state.flow_level + boost)
             triggers.append(f"@+{boost:.0f}")
         else:
@@ -58,7 +58,7 @@ class FlowEngine:
                     self._reply_cfg.get("bot_name", "")] if n]
             for name in names:
                 if name in message_text:
-                    boost = float(self._cfg.get("flow_boost_mention", 35))
+            boost = float(self._cfg.get("flow_boost_mention", 45))
                     state.flow_level = min(100, state.flow_level + boost)
                     triggers.append(f"名字+{boost:.0f}")
                     break
@@ -71,7 +71,7 @@ class FlowEngine:
                 break
 
         if "?" in message_text or "？" in message_text:
-            boost = float(self._cfg.get("flow_boost_question", 20))
+            boost = float(self._cfg.get("flow_boost_question", 25))
             state.flow_level = min(100, state.flow_level + boost)
             triggers.append(f"问号+{boost:.0f}")
 

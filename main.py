@@ -399,7 +399,7 @@ class HumanLikePlugin(Star):
         state.reply_timestamps.append(now)
         window = self.config.get("debounce", {}).get("reply_window_seconds", 300)
         state.reply_timestamps = [t for t in state.reply_timestamps if now - t < window]
-        decay = self.config.get("flow_engine", {}).get("flow_decay_on_reply", 20)
+        decay = self.config.get("flow_engine", {}).get("flow_decay_on_reply", 12)
         old = state.flow_level
         state.flow_level = max(0, state.flow_level - decay)
         logger.debug(f"发言后心流 {old:.1f} → {state.flow_level:.1f}")

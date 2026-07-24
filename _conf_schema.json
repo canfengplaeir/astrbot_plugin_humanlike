@@ -69,7 +69,7 @@
       "flow_decay_rate": {
         "description": "心流衰减速度",
         "type": "float",
-        "default": 0.25,
+        "default": 0.15,
         "hint": "每秒衰减的心流值。值越小，机器人兴趣保持越久"
       },
       "initial_flow": {
@@ -81,13 +81,13 @@
       "flow_reply_threshold": {
         "description": "回复心流阈值",
         "type": "int",
-        "default": 30,
+        "default": 20,
         "hint": "心流值达到此阈值时才考虑回复。越低机器人话越多"
       },
       "flow_boost_mention": {
         "description": "@提及加成",
         "type": "int",
-        "default": 35,
+        "default": 45,
         "hint": "被@或名字被提及时增加的心流值"
       },
       "flow_boost_keyword": {
@@ -99,7 +99,7 @@
       "flow_boost_question": {
         "description": "问句加成",
         "type": "int",
-        "default": 20,
+        "default": 25,
         "hint": "消息包含问号时额外增加的心流值"
       },
       "flow_boost_activity": {
@@ -111,13 +111,13 @@
       "flow_decay_on_reply": {
         "description": "回复后衰减",
         "type": "int",
-        "default": 20,
+        "default": 12,
         "hint": "机器人回复后降低的心流值，模拟'说完话后暂时安静'的行为"
       },
       "random_silence_probability": {
         "description": "随机沉默概率(%)",
         "type": "float",
-        "default": 5.0,
+        "default": 2.0,
         "hint": "即使心流值达标，也有概率保持沉默。0-100，越低话越多"
       }
     }
@@ -130,13 +130,13 @@
       "min_reply_cooldown": {
         "description": "最小回复间隔(秒)",
         "type": "int",
-        "default": 12,
+        "default": 8,
         "hint": "两次发言之间最少间隔的秒数"
       },
       "max_replies_per_window": {
         "description": "窗口内最大回复数",
         "type": "int",
-        "default": 8,
+        "default": 12,
         "hint": "在时间窗口内最多发言次数"
       },
       "reply_window_seconds": {
@@ -179,13 +179,13 @@
       "silence_threshold": {
         "description": "沉默阈值(秒)",
         "type": "int",
-        "default": 5,
+        "default": 3,
         "hint": "连续多少秒没有新消息后，触发批量处理"
       },
       "immediate_flow_threshold": {
         "description": "立即回复心流阈值",
         "type": "int",
-        "default": 70,
+        "default": 55,
         "hint": "心流值超过此阈值时，跳过累积等待，立即回复。值越低越容易插话"
       },
       "max_buffer_size": {
