@@ -149,6 +149,12 @@ class HumanLikePlugin(Star):
 
             if immediate:
                 self.accum.cancel_timer(state)
+                for m in state.pending_messages:
+                    state.conversation_context.append({
+                        "sender": m["sender"], "text": m["text"],
+                    })
+                if len(state.conversation_context) > 12:
+                    state.conversation_context = state.conversation_context[-12:]
                 state.pending_messages.clear()
 
                 self._append_context(state, event.get_sender_name() or "未知", msg_text)
@@ -164,7 +170,6 @@ class HumanLikePlugin(Star):
                 if self.accum.enabled:
                     self.accum.add_to_buffer(state, event, msg_text,
                                              event.get_sender_name() or "未知")
-                    self._append_context(state, event.get_sender_name() or "未知", msg_text)
                     state.last_msg_time = now
                     self.accum.cancel_timer(state)
                     await self.accum.start_timer(group_id, state,
@@ -258,7 +263,8 @@ class HumanLikePlugin(Star):
 
         now = time.time()
         if not self.debounce.check(state, now):
-            logger.info(f"[群:{group_id}] 批处理: 防抖拦截，消息保留在缓冲中")
+            logger.info(f"[群:{group_id}] 批处理: 防抖拦截，延时重试")
+            await self.accum.start_timer(group_id, state, self._on_silence_timeout)
             return
 
         async with state.lock:
@@ -280,8 +286,7 @@ class HumanLikePlugin(Star):
             persona_prompt = await self.persona.system_prompt(last_event)
             persona_name = await self.persona.name(last_event)
 
-        ctx_list = [{"sender": m["sender"], "text": m["text"]} for m in pending[-8:]]
-        ctx_list.extend(state.conversation_context[-4:])
+        ctx_list = list(state.conversation_context[-10:])
         flow_snap = state.flow_level
 
         if not await self.ai.judge_batch(last_event, flow_snap, ctx_list,
