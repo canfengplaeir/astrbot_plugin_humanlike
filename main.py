@@ -16,6 +16,7 @@ from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star
 from astrbot.api import AstrBotConfig
 from astrbot.api import logger
+from astrbot.api.web import json_response, error_response, request
 from astrbot.core.agent.message import (
     AssistantMessageSegment,
     UserMessageSegment,
@@ -24,6 +25,8 @@ from astrbot.core.agent.message import (
 
 from engine import GroupState, FlowEngine, DebounceChecker, AccumulationManager
 from ai import PersonaBridge, AIClient
+
+PLUGIN_NAME = "astrbot_plugin_humanlike"
 
 
 class HumanLikePlugin(Star):
@@ -42,6 +45,17 @@ class HumanLikePlugin(Star):
         self.ai = AIClient(context, config)
         self._keywords_loaded = False
         self._keywords_generating = False
+
+        context.register_web_api(
+            f"/{PLUGIN_NAME}/keywords/list", self._api_kw_list, ["GET"], "关键词列表")
+        context.register_web_api(
+            f"/{PLUGIN_NAME}/keywords/add", self._api_kw_add, ["POST"], "添加关键词")
+        context.register_web_api(
+            f"/{PLUGIN_NAME}/keywords/remove", self._api_kw_remove, ["POST"], "删除关键词")
+        context.register_web_api(
+            f"/{PLUGIN_NAME}/keywords/generate", self._api_kw_gen, ["POST"], "AI生成")
+        context.register_web_api(
+            f"/{PLUGIN_NAME}/keywords/clear", self._api_kw_clear, ["POST"], "清空关键词")
 
         asyncio.ensure_future(self._init_keywords())
 
@@ -463,6 +477,111 @@ class HumanLikePlugin(Star):
             ))
         else:
             await event.send(event.plain_result("❌ 关键词生成失败，请检查人格是否已配置"))
+
+    # ============================================================
+    # Web API — 关键词管理
+    # ============================================================
+
+    async def _api_kw_list(self):
+        manual = (self.config.get("interest_keywords", []) or [])[:]
+        ai_kw = list(self.flow._ai_keywords) if hasattr(self.flow, '_ai_keywords') else []
+        return json_response({"manual": manual, "ai": ai_kw, "all": manual + ai_kw})
+
+    async def _api_kw_add(self):
+        body = await request.json(default={})
+        kw = (body.get("keyword") or "").strip()
+        if not kw:
+            return error_response("关键词不能为空")
+        manual = self.config.get("interest_keywords", []) or []
+        if kw in manual:
+            return json_response({"ok": True, "existed": True})
+        manual.append(kw)
+        self.config["interest_keywords"] = manual
+        try:
+            self.config.save_config()
+        except Exception:
+            pass
+        self.flow._interest_keywords = manual
+        return json_response({"ok": True, "keyword": kw})
+
+    async def _api_kw_remove(self):
+        body = await request.json(default={})
+        kw = (body.get("keyword") or "").strip()
+        manual = self.config.get("interest_keywords", []) or []
+        if kw not in manual:
+            return json_response({"ok": False, "message": "关键词不存在"})
+        manual.remove(kw)
+        self.config["interest_keywords"] = manual
+        try:
+            self.config.save_config()
+        except Exception:
+            pass
+        self.flow._interest_keywords = manual
+        return json_response({"ok": True})
+
+    async def _api_kw_gen(self):
+        if self._keywords_generating:
+            return error_response("关键词正在生成中")
+        self._keywords_generating = True
+        try:
+            persona = await self.context.persona_manager.get_default_persona_v3(None)
+            persona_prompt = persona.get("prompt", "") if persona else ""
+            persona_name = persona.get("name", "") if persona else ""
+            if not persona_prompt:
+                self._keywords_generating = False
+                return error_response("无人格设定")
+
+            providers = self.context.get_all_providers()
+            pid = providers[0].meta.id if providers else None
+            if not pid:
+                self._keywords_generating = False
+                return error_response("无可用AI提供商")
+
+            prompt = (
+                f"根据以下人格设定，生成10个该角色可能感兴趣的话题关键词。\n"
+                f"关键词应该是简短的词语（1-4个字），每行一个，不要编号。\n\n"
+                f"人格名称：{persona_name or '（未设定）'}\n"
+                f"人格设定：\n{persona_prompt[:500]}\n\n"
+                f"关键词："
+            )
+            resp = await asyncio.wait_for(
+                self.context.llm_generate(chat_provider_id=pid, prompt=prompt),
+                timeout=60,
+            )
+            text = resp.completion_text.strip()
+            keywords = [
+                line.strip().lstrip("0123456789.、-•· ") for line in text.split("\n")
+                if line.strip()
+            ]
+            keywords = [kw for kw in keywords if len(kw) <= 8][:15]
+
+            if keywords:
+                self.flow.set_ai_keywords(keywords)
+                await self.put_kv_data("ai_keywords", keywords)
+                logger.info(f"WebUI生成关键词 ({len(keywords)}个): {keywords[:10]}")
+            self._keywords_generating = False
+            return json_response({"ok": True, "keywords": keywords})
+        except asyncio.TimeoutError:
+            self._keywords_generating = False
+            return error_response("生成超时（60秒）")
+        except Exception as e:
+            self._keywords_generating = False
+            return error_response(str(e))
+
+    async def _api_kw_clear(self):
+        body = await request.json(default={})
+        target = body.get("target", "manual")
+        if target == "manual":
+            self.config["interest_keywords"] = []
+            try:
+                self.config.save_config()
+            except Exception:
+                pass
+            self.flow._interest_keywords = []
+        elif target == "ai":
+            self.flow.set_ai_keywords([])
+            await self.delete_kv_data("ai_keywords")
+        return json_response({"ok": True})
 
     async def terminate(self):
         logger.info("拟人化群聊助手插件已卸载")

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>关键词管理</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div class="container">
+    <h2>📋 关键词管理</h2>
+    <p class="desc">机器人会对包含这些关键词的消息更感兴趣，更愿意参与对话</p>
+
+    <div class="section">
+      <h3>手动配置</h3>
+      <div class="input-row">
+        <input type="text" id="manualInput" placeholder="输入关键词，回车添加" />
+        <button id="addBtn">添加</button>
+      </div>
+      <div class="tags" id="manualTags"></div>
+      <button class="btn-danger" id="clearManual">清空手动关键词</button>
+    </div>
+
+    <div class="section">
+      <h3>AI 生成</h3>
+      <p class="hint">根据当前人格设定自动生成相关关键词</p>
+      <div class="tags" id="aiTags"></div>
+      <div class="btn-row">
+        <button class="btn-primary" id="genBtn">🤖 AI 生成关键词</button>
+        <button class="btn-danger" id="clearAi">清空AI关键词</button>
+      </div>
+      <div id="genStatus" class="status"></div>
+    </div>
+  </div>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
