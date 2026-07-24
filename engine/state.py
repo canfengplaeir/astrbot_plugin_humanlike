@@ -15,3 +15,4 @@ class GroupState:
     last_msg_time: float = 0.0
     last_speaker_id: str = ""
     same_speaker_count: int = 0
+    retry_count: int = 0

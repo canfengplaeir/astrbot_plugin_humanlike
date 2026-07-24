@@ -234,6 +234,7 @@ class HumanLikePlugin(Star):
                 if self.accum.enabled:
                     self.accum.add_to_buffer(state, event, msg_text,
                                              event.get_sender_name() or "未知")
+                    state.retry_count = 0
                     state.last_msg_time = now
                     self.accum.cancel_timer(state)
                     await self.accum.start_timer(group_id, state,
@@ -336,9 +337,15 @@ class HumanLikePlugin(Star):
 
         now = time.time()
         if not self.debounce.check(state, now):
-            logger.info(f"[群:{group_id}] 批处理: 防抖拦截，20s后重试")
-            await self._start_retry_timer(group_id, state)
+            state.retry_count += 1
+            if state.retry_count > 2:
+                state.pending_messages.clear()
+                logger.info(f"[群:{group_id}] 批处理: 重试{state.retry_count}次仍拦截，丢弃")
+            else:
+                logger.info(f"[群:{group_id}] 批处理: 防抖拦截({state.retry_count}/3)，20s后重试")
+                await self._start_retry_timer(group_id, state)
             return
+        state.retry_count = 0
 
         async with state.lock:
             state.pending_messages.clear()
