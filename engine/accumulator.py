@@ -1,4 +1,5 @@
 import asyncio
+import random
 
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api import logger
@@ -64,6 +65,7 @@ class AccumulationManager:
                           callback):
         """启动计时器，到期后调用 callback(group_id)。"""
         delay = self.silence_threshold()
+        delay *= 0.7 + random.random() * 0.6  # ±30% 随机抖动
 
         async def _on_timer():
             await asyncio.sleep(delay)

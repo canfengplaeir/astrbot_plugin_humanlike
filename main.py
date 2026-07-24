@@ -176,7 +176,32 @@ class HumanLikePlugin(Star):
 
         async with state.lock:
             old_flow = state.flow_level
+
+            same_speaker = (state.last_speaker_id == sender_id)
+            if same_speaker:
+                state.same_speaker_count += 1
+            else:
+                state.same_speaker_count = 1
+            state.last_speaker_id = sender_id
+
             self.flow.update(state, event, msg_text, now, persona_name)
+
+            if state.same_speaker_count >= 3:
+                penalty = min(10, (state.same_speaker_count - 2) * 3)
+                state.flow_level = max(0, state.flow_level - penalty)
+                logger.debug(
+                    f"[群:{group_id}] 同一人连续{state.same_speaker_count}条 → 心流-{penalty}"
+                )
+
+            time_since_reply = now - state.last_reply_time
+            if 0 < time_since_reply < 30 and state.last_reply_time > 0:
+                if persona_name and persona_name in msg_text:
+                    boost = 15
+                    state.flow_level = min(100, state.flow_level + boost)
+                    logger.debug(
+                        f"[群:{group_id}] 回复互动检测 → 心流+{boost}"
+                    )
+
             if state.flow_level != old_flow:
                 logger.debug(
                     f"[群:{group_id}] 心流 {old_flow:.1f} → {state.flow_level:.1f}"
