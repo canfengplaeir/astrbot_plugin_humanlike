@@ -357,8 +357,9 @@ class HumanLikePlugin(Star):
     # 指令
     # ============================================================
 
-    @filter.command("mindflow")
+    @filter.command("mindflow", priority=1)
     async def cmd_mindflow(self, event: AstrMessageEvent):
+        event.stop_event()
         gid = event.message_obj.group_id
         if not gid:
             yield event.plain_result("请在群聊中使用")
@@ -387,8 +388,9 @@ class HumanLikePlugin(Star):
             f"缓冲: {pending}条"
         )
 
-    @filter.command("mindflowreset")
+    @filter.command("mindflowreset", priority=1)
     async def cmd_reset(self, event: AstrMessageEvent):
+        event.stop_event()
         gid = event.message_obj.group_id
         if not gid:
             yield event.plain_result("请在群聊中使用")
@@ -403,9 +405,10 @@ class HumanLikePlugin(Star):
             )
         yield event.plain_result(f"已重置，心流={init:.0f}/100")
 
-    @filter.command("genkeywords")
+    @filter.command("genkeywords", priority=1)
     async def cmd_genkeywords(self, event: AstrMessageEvent):
         """让 AI 根据当前人格生成感兴趣的关键词"""
+        event.stop_event()
         if not self.config.get("reply_engine", {}).get("use_ai_keywords", False):
             yield event.plain_result("AI关键词生成未启用，请在插件配置中开启")
             return
@@ -421,7 +424,6 @@ class HumanLikePlugin(Star):
             )
         else:
             yield event.plain_result("❌ 关键词生成失败，请检查人格是否已配置")
-        event.stop_event()
 
     async def terminate(self):
         logger.info("拟人化群聊助手插件已卸载")
