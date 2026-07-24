@@ -5,6 +5,11 @@ import time
 from typing import Dict
 
 # 确保插件子目录可被导入
+# 清除旧模块缓存，确保重装后加载最新代码
+for _key in list(sys.modules.keys()):
+    if _key.startswith(("engine", "ai", "astrbot_plugin_humanlike")):
+        del sys.modules[_key]
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from astrbot.api.event import filter, AstrMessageEvent
