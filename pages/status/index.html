@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>状态面板</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h2>状态面板</h2>
+      <p>各群聊心流状态和发言统计</p>
+      <div class="meta" id="meta"></div>
+    </div>
+    <div class="card">
+      <table>
+        <thead>
+          <tr>
+            <th>群聊</th>
+            <th>心流</th>
+            <th>上次发言</th>
+            <th>窗口发言</th>
+            <th>缓冲</th>
+          </tr>
+        </thead>
+        <tbody id="groupTable"></tbody>
+      </table>
+      <div class="empty-msg" id="emptyMsg">暂无活跃群聊数据</div>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary" id="refreshBtn">刷新</button>
+      <span class="auto-refresh" id="autoLabel">10s 后自动刷新</span>
+    </div>
+  </div>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

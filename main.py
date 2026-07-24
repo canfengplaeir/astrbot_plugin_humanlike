@@ -58,6 +58,8 @@ class HumanLikePlugin(Star):
             f"/{PLUGIN_NAME}/keywords/clear", self._api_kw_clear, ["POST"], "清空关键词")
         context.register_web_api(
             f"/{PLUGIN_NAME}/keywords/personas", self._api_kw_personas, ["GET"], "人格列表")
+        context.register_web_api(
+            f"/{PLUGIN_NAME}/status/groups", self._api_status, ["GET"], "群聊状态")
 
         asyncio.ensure_future(self._init_keywords())
 
@@ -523,11 +525,15 @@ class HumanLikePlugin(Star):
 
     async def _api_kw_personas(self):
         try:
-            personas = self.context.persona_manager.personas
-            result = [
-                {"id": p.persona_id, "preview": p.system_prompt[:80]}
-                for p in personas
-            ]
+            personas = self.context.persona_manager.personas or []
+            if personas:
+                result = [
+                    {"id": p.persona_id, "preview": p.system_prompt[:80]}
+                    for p in personas
+                ]
+            else:
+                p = await self.context.persona_manager.get_default_persona_v3(None)
+                result = [{"id": p.get("name", "default"), "preview": p.get("prompt", "")[:80]}]
             return json_response(result)
         except Exception as e:
             return error_response(str(e))
@@ -603,6 +609,31 @@ class HumanLikePlugin(Star):
             self.flow.set_ai_keywords([])
             await self.delete_kv_data("ai_keywords")
         return json_response({"ok": True})
+
+    async def _api_status(self):
+        now = time.time()
+        groups = []
+        for gid, s in self._states.items():
+            async with s.lock:
+                win = self.config.get("debounce", {}).get("reply_window_seconds", 300)
+                max_msgs = self.config.get("debounce", {}).get("max_replies_per_window", 8)
+                recent = len([t for t in s.reply_timestamps if now - t < win])
+                last_ago = int(now - s.last_reply_time) if s.last_reply_time > 0 else -1
+                groups.append({
+                    "group_id": gid[:20],
+                    "flow": s.flow_level,
+                    "last_reply_ago": last_ago,
+                    "recent_replies": f"{recent}/{max_msgs}",
+                    "pending": len(s.pending_messages),
+                    "context_len": len(s.conversation_context),
+                })
+        groups.sort(key=lambda g: -g["flow"])
+        return json_response({
+            "total_groups": len(groups),
+            "groups": groups,
+            "override": self._override(),
+            "accum_enabled": self.accum.enabled,
+        })
 
     async def terminate(self):
         logger.info("拟人化群聊助手插件已卸载")
