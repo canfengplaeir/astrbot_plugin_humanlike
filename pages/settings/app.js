@@ -28,10 +28,10 @@ function setVal(path, val) {
   if (el.type === "checkbox") {
     el.checked = !!val;
   } else if (el.type === "range") {
-    el.value = val;
+    el.value = (val != null) ? val : (el.min || 0);
     updateOutput(el);
   } else {
-    el.value = val ?? "";
+    el.value = (val != null) ? val : "";
   }
 }
 
