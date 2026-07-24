@@ -246,12 +246,9 @@ class HumanLikePlugin(Star):
         state = await self._get_state(group_id)
 
         async with state.lock:
+            if not state.pending_messages:
+                return
             pending = list(state.pending_messages)
-            state.pending_messages.clear()
-            state.silence_timer = None
-
-        if not pending:
-            return
 
         logger.info(
             f"[群:{group_id}] 批处理: {len(pending)}条 "
@@ -260,8 +257,12 @@ class HumanLikePlugin(Star):
 
         now = time.time()
         if not self.debounce.check(state, now):
-            logger.info(f"[群:{group_id}] 批处理: 防抖拦截")
+            logger.info(f"[群:{group_id}] 批处理: 防抖拦截，消息保留在缓冲中")
             return
+
+        async with state.lock:
+            state.pending_messages.clear()
+            state.silence_timer = None
 
         last_event = pending[-1].get("event") if pending else None
         if not last_event:
