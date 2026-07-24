@@ -27,12 +27,17 @@
     </div>
 
     <div class="card">
-      <h3>🤖 AI 生成</h3>
-      <p class="hint">根据当前人格设定，由 AI 自动生成该角色可能感兴趣的话题关键词</p>
+      <h3>🤖 AI 生成关键词</h3>
+      <p class="hint">选择一个人格，AI 将根据该人格设定自动生成相关话题关键词</p>
+      <div class="input-row">
+        <select id="personaSelect" style="flex:1">
+          <option value="">加载中...</option>
+        </select>
+        <button class="btn btn-primary" id="genBtn">🤖 生成</button>
+      </div>
       <div class="tags" id="aiTags"></div>
       <div class="actions">
-        <button class="btn btn-primary" id="genBtn">🤖 生成关键词</button>
-        <button class="btn btn-text" id="clearAi">清空</button>
+        <button class="btn btn-text" id="clearAi">清空 AI 关键词</button>
         <span style="font-size:12px;color:var(--text-secondary)" id="aiCount"></span>
       </div>
       <div id="genStatus" class="status"></div>

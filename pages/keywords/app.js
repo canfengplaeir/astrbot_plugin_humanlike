@@ -6,6 +6,7 @@ const manualTags = document.getElementById("manualTags");
 const aiTags = document.getElementById("aiTags");
 const genBtn = document.getElementById("genBtn");
 const genStatus = document.getElementById("genStatus");
+const personaSelect = document.getElementById("personaSelect");
 const clearManual = document.getElementById("clearManual");
 const clearAi = document.getElementById("clearAi");
 const manualCount = document.getElementById("manualCount");
@@ -78,7 +79,9 @@ genBtn.onclick = async () => {
   genStatus.textContent = "";
   genStatus.className = "status";
   try {
-    const result = await bridge.apiPost("keywords/generate", {});
+    const result = await bridge.apiPost("keywords/generate", {
+      persona_id: personaSelect.value,
+    });
     if (result.ok && result.keywords) {
       genStatus.textContent = `✅ 已生成 ${result.keywords.length} 个关键词`;
       genStatus.className = "status success";
@@ -107,4 +110,19 @@ clearAi.onclick = async () => {
 function esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
 function escAttr(s) { return s.replace(/"/g, "&quot;"); }
 
+async function loadPersonas() {
+  try {
+    const personas = await bridge.apiGet("keywords/personas");
+    personaSelect.innerHTML = personas
+      .map((p) => `<option value="${escAttr(p.id)}">${esc(p.id)}</option>`)
+      .join("");
+    if (!personas.length) {
+      personaSelect.innerHTML = '<option value="">无可用人格</option>';
+    }
+  } catch {
+    personaSelect.innerHTML = '<option value="">（默认）</option>';
+  }
+}
+
+loadPersonas();
 loadKeywords();

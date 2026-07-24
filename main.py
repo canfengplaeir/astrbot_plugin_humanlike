@@ -56,6 +56,8 @@ class HumanLikePlugin(Star):
             f"/{PLUGIN_NAME}/keywords/generate", self._api_kw_gen, ["POST"], "AI生成")
         context.register_web_api(
             f"/{PLUGIN_NAME}/keywords/clear", self._api_kw_clear, ["POST"], "清空关键词")
+        context.register_web_api(
+            f"/{PLUGIN_NAME}/keywords/personas", self._api_kw_personas, ["GET"], "人格列表")
 
         asyncio.ensure_future(self._init_keywords())
 
@@ -519,14 +521,34 @@ class HumanLikePlugin(Star):
         self.flow._interest_keywords = manual
         return json_response({"ok": True})
 
+    async def _api_kw_personas(self):
+        try:
+            personas = self.context.persona_manager.personas
+            result = [
+                {"id": p.persona_id, "preview": p.system_prompt[:80]}
+                for p in personas
+            ]
+            return json_response(result)
+        except Exception as e:
+            return error_response(str(e))
+
     async def _api_kw_gen(self):
         if self._keywords_generating:
             return error_response("关键词正在生成中")
         self._keywords_generating = True
         try:
-            persona = await self.context.persona_manager.get_default_persona_v3(None)
-            persona_prompt = persona.get("prompt", "") if persona else ""
-            persona_name = persona.get("name", "") if persona else ""
+            body = await request.json(default={})
+            persona_id = body.get("persona_id", "") or ""
+            persona = None
+            if persona_id:
+                try:
+                    persona = await self.context.persona_manager.get_persona(persona_id)
+                except ValueError:
+                    pass
+            if not persona:
+                persona = await self.context.persona_manager.get_default_persona_v3(None)
+            persona_prompt = persona.system_prompt if hasattr(persona, 'system_prompt') else persona.get("prompt", "")
+            persona_name = persona.persona_id if hasattr(persona, 'persona_id') else persona.get("name", "")
             if not persona_prompt:
                 self._keywords_generating = False
                 return error_response("无人格设定，请先在人格管理中创建人格")

@@ -81,6 +81,18 @@ body {
   transition: border-color 0.2s;
 }
 .input-row input:focus { border-color: var(--accent); }
+.input-row select {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card-bg);
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+.input-row select:focus { border-color: var(--accent); }
 
 .btn {
   padding: 8px 18px;
