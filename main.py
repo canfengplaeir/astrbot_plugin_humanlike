@@ -416,6 +416,22 @@ class HumanLikePlugin(Star):
             )
         yield event.plain_result(f"已重置，心流={init:.0f}/100")
 
+    @filter.command("keywords", priority=1)
+    async def cmd_keywords(self, event: AstrMessageEvent):
+        event.stop_event()
+        manual = self.config.get("interest_keywords", []) or []
+        ai_kw = list(self.flow._ai_keywords) if hasattr(self.flow, '_ai_keywords') else []
+        merged = list(self.flow._all_keywords()) if hasattr(self.flow, '_all_keywords') else manual
+
+        lines = [f"📋 当前关键词（共{len(merged)}个）："]
+        if manual:
+            lines.append(f"\n手动配置({len(manual)}): {', '.join(manual)}")
+        if ai_kw:
+            lines.append(f"\nAI生成({len(ai_kw)}): {', '.join(ai_kw)}")
+        if not manual and not ai_kw:
+            lines.append("\n暂无关键词，使用 /genkeywords 生成")
+        yield event.plain_result("".join(lines))
+
     @filter.command("genkeywords", priority=1)
     async def cmd_genkeywords(self, event: AstrMessageEvent):
         """让 AI 根据当前人格生成感兴趣的关键词"""
