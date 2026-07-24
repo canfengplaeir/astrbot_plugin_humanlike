@@ -1,0 +1,365 @@
+import asyncio
+import time
+from typing import Dict
+
+from astrbot.api.event import filter, AstrMessageEvent
+from astrbot.api.star import Context, Star
+from astrbot.api import AstrBotConfig
+from astrbot.api import logger
+from astrbot.core.agent.message import (
+    AssistantMessageSegment,
+    UserMessageSegment,
+    TextPart,
+)
+
+from engine import GroupState, FlowEngine, DebounceChecker, AccumulationManager
+from ai import PersonaBridge, AIClient
+
+
+class HumanLikePlugin(Star):
+    """拟人化群聊助手 — 编排各模块协同工作。"""
+
+    def __init__(self, context: Context, config: AstrBotConfig):
+        super().__init__(context)
+        self.config = config
+        self._states: Dict[str, GroupState] = {}
+        self._lock = asyncio.Lock()
+
+        self.flow = FlowEngine(config)
+        self.debounce = DebounceChecker(config)
+        self.accum = AccumulationManager(config)
+        self.persona = PersonaBridge(context, config)
+        self.ai = AIClient(context, config)
+
+        logger.info("拟人化群聊助手插件已加载")
+
+    # ============================================================
+    # 状态管理
+    # ============================================================
+
+    async def _get_state(self, group_id: str) -> GroupState:
+        async with self._lock:
+            if group_id not in self._states:
+                init = float(self.config.get("flow_engine", {}).get("initial_flow", 50))
+                self._states[group_id] = GroupState(
+                    flow_level=init,
+                    last_update_time=time.time(),
+                )
+            return self._states[group_id]
+
+    def _override(self) -> bool:
+        return self.config.get("reply_engine", {}).get("override_group_replies", True)
+
+    def _stop_if_override(self, event: AstrMessageEvent):
+        if self._override():
+            event.stop_event()
+
+    # ============================================================
+    # 主入口
+    # ============================================================
+
+    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
+    async def on_group_message(self, event: AstrMessageEvent):
+        group_id = event.message_obj.group_id
+        if not group_id:
+            return
+
+        sender_id = str(event.get_sender_id())
+        if sender_id == str(event.message_obj.self_id):
+            return
+
+        cfg = self.config
+        msg_preview = (event.message_str or "")[:50]
+
+        if cfg.get("reply_engine", {}).get("allow_command_pass", True):
+            if (event.message_str or "").strip().startswith("/"):
+                logger.debug(f"[群:{group_id}] 指令放行: {msg_preview}")
+                return
+
+        logger.info(
+            f"[群:{group_id}] 收到消息 | "
+            f"{event.get_sender_name()}({sender_id}) | {msg_preview}"
+        )
+
+        state = await self._get_state(group_id)
+        persona_prompt, persona_name = "", ""
+        if self.persona.enabled:
+            persona_prompt = await self.persona.system_prompt(event)
+            persona_name = await self.persona.name(event)
+
+        now = time.time()
+        msg_text = event.message_str or ""
+
+        async with state.lock:
+            old_flow = state.flow_level
+            self.flow.update(state, event, msg_text, now, persona_name)
+            if state.flow_level != old_flow:
+                logger.debug(
+                    f"[群:{group_id}] 心流 {old_flow:.1f} → {state.flow_level:.1f}"
+                )
+
+            immediate = self.accum.is_immediate_trigger(
+                event, state.flow_level, persona_name
+            )
+
+            if immediate:
+                self.accum.cancel_timer(state)
+                state.pending_messages.clear()
+
+                self._append_context(state, event.get_sender_name() or "未知", msg_text)
+                if not self.debounce.check(state, now):
+                    logger.info(f"[群:{group_id}] 防抖拦截（立即触发但频率受限）")
+                    self._stop_if_override(event)
+                    return
+
+                flow_snap = state.flow_level
+                ctx_snap = list(state.conversation_context[-8:])
+
+            else:
+                if self.accum.enabled:
+                    self.accum.add_to_buffer(state, event, msg_text,
+                                             event.get_sender_name() or "未知")
+                    state.last_msg_time = now
+                    self.accum.cancel_timer(state)
+                    await self.accum.start_timer(group_id, state,
+                                                 self._on_silence_timeout)
+
+                    if self.accum.should_force_process(state):
+                        logger.debug(f"[群:{group_id}] 累积缓冲满，立即处理")
+                        self.accum.cancel_timer(state)
+                        asyncio.ensure_future(self._run_batch_pipeline(group_id))
+
+                    logger.info(
+                        f"[群:{group_id}] 累积: 缓冲({len(state.pending_messages)}条, "
+                        f"心流={state.flow_level:.0f})"
+                    )
+                else:
+                    self._append_context(state, event.get_sender_name() or "未知",
+                                         msg_text)
+                    if not self.debounce.check(state, now):
+                        logger.info(f"[群:{group_id}] 防抖拦截")
+                        self._stop_if_override(event)
+                        return
+                    flow_snap = state.flow_level
+                    ctx_snap = list(state.conversation_context[-8:])
+                    immediate = True  # 走立即处理路径
+
+                self._stop_if_override(event)
+                if self.accum.enabled:
+                    return
+
+        await self._run_immediate(event, state, flow_snap, ctx_snap,
+                                  persona_prompt, persona_name)
+
+    # ============================================================
+    # 立即处理
+    # ============================================================
+
+    async def _run_immediate(self, event, state, flow_snap, ctx_snap,
+                             persona_prompt, persona_name):
+        logger.info(f"立即处理 | 心流={flow_snap:.0f} → AI判断...")
+        if not await self.ai.judge(event, flow_snap, ctx_snap,
+                                    persona_prompt, persona_name):
+            logger.info("AI判断 → 沉默")
+            self._stop_if_override(event)
+            return
+
+        logger.info("AI判断 → 发言 → 生成回复...")
+        reply = await self.ai.reply(event, flow_snap, ctx_snap,
+                                     persona_prompt, persona_name)
+        if not reply:
+            logger.warning("回复生成失败（空内容）")
+            self._stop_if_override(event)
+            return
+
+        logger.info(f"回复完毕 ({len(reply)}字) | 预览={reply[:40]}")
+
+        await event.send(event.plain_result(reply))
+
+        async with state.lock:
+            self._record_reply(state, now=time.time(),
+                               persona_name=persona_name)
+
+            state.conversation_context.append({
+                "sender": persona_name or self.config.get("reply_engine", {}).get("bot_name", "bot"),
+                "text": reply,
+            })
+            if len(state.conversation_context) > 12:
+                state.conversation_context = state.conversation_context[-12:]
+
+        await self._write_history(event, reply)
+        self._stop_if_override(event)
+
+    # ============================================================
+    # 累积批处理
+    # ============================================================
+
+    async def _on_silence_timeout(self, group_id: str):
+        await self._run_batch_pipeline(group_id)
+
+    async def _run_batch_pipeline(self, group_id: str):
+        state = await self._get_state(group_id)
+
+        async with state.lock:
+            pending = list(state.pending_messages)
+            state.pending_messages.clear()
+            state.silence_timer = None
+
+        if not pending:
+            return
+
+        logger.info(
+            f"[群:{group_id}] 批处理: {len(pending)}条 "
+            f"| {' → '.join(m['text'][:20] for m in pending[-3:])}"
+        )
+
+        now = time.time()
+        if not self.debounce.check(state, now):
+            logger.info(f"[群:{group_id}] 批处理: 防抖拦截")
+            return
+
+        last_event = pending[-1].get("event") if pending else None
+        if not last_event:
+            return
+
+        persona_prompt, persona_name = "", ""
+        if self.persona.enabled:
+            persona_prompt = await self.persona.system_prompt(last_event)
+            persona_name = await self.persona.name(last_event)
+
+        ctx_list = [{"sender": m["sender"], "text": m["text"]} for m in pending[-8:]]
+        ctx_list.extend(state.conversation_context[-4:])
+        flow_snap = state.flow_level
+
+        if not await self.ai.judge_batch(last_event, flow_snap, ctx_list,
+                                          persona_prompt, persona_name):
+            logger.info(f"[群:{group_id}] 批处理: AI判断→沉默")
+            return
+
+        logger.info(f"[群:{group_id}] 批处理: AI判断→发言 → 生成...")
+        reply = await self.ai.reply_batch(last_event, flow_snap, ctx_list,
+                                           persona_prompt, persona_name)
+        if not reply:
+            logger.warning(f"[群:{group_id}] 批处理: 回复生成失败")
+            return
+
+        logger.info(f"[群:{group_id}] 批处理: 回复完毕 ({len(reply)}字) | 预览={reply[:40]}")
+
+        async with state.lock:
+            self._record_reply(state, now=time.time(),
+                               persona_name=persona_name)
+            for m in pending:
+                state.conversation_context.append({
+                    "sender": m["sender"], "text": m["text"],
+                })
+            state.conversation_context.append({
+                "sender": persona_name or self.config.get("reply_engine", {}).get("bot_name", "bot"),
+                "text": reply,
+            })
+            if len(state.conversation_context) > 12:
+                state.conversation_context = state.conversation_context[-12:]
+
+        await last_event.send(last_event.plain_result(reply))
+
+        combined_user = " | ".join([m["text"] for m in pending])
+        await self._write_history(last_event, reply, user_message=combined_user)
+
+        if self._override():
+            last_event.stop_event()
+
+    # ============================================================
+    # 内部工具
+    # ============================================================
+
+    def _append_context(self, state: GroupState, sender: str, text: str):
+        state.conversation_context.append({"sender": sender, "text": text})
+        if len(state.conversation_context) > 12:
+            state.conversation_context = state.conversation_context[-12:]
+
+    def _record_reply(self, state: GroupState, now: float, persona_name: str):
+        state.last_reply_time = now
+        state.reply_timestamps.append(now)
+        window = self.config.get("debounce", {}).get("reply_window_seconds", 300)
+        state.reply_timestamps = [t for t in state.reply_timestamps if now - t < window]
+        decay = self.config.get("flow_engine", {}).get("flow_decay_on_reply", 30)
+        old = state.flow_level
+        state.flow_level = max(0, state.flow_level - decay)
+        logger.debug(f"发言后心流 {old:.1f} → {state.flow_level:.1f}")
+
+    async def _write_history(self, event: AstrMessageEvent, reply: str,
+                             user_message: str = None):
+        if not self.config.get("reply_engine", {}).get("record_conversation", True):
+            return
+        try:
+            msg_text = user_message if user_message is not None else (event.message_str or "")
+            mgr = self.context.conversation_manager
+            cid = await mgr.get_curr_conversation_id(event.unified_msg_origin)
+            if not cid:
+                return
+            await mgr.add_message_pair(
+                cid=cid,
+                user_message=UserMessageSegment(
+                    content=[TextPart(text=msg_text)]
+                ),
+                assistant_message=AssistantMessageSegment(
+                    content=[TextPart(text=reply)]
+                ),
+            )
+        except Exception as e:
+            logger.debug(f"写历史失败: {e}")
+
+    # ============================================================
+    # 指令
+    # ============================================================
+
+    @filter.command("mindflow")
+    async def cmd_mindflow(self, event: AstrMessageEvent):
+        gid = event.message_obj.group_id
+        if not gid:
+            yield event.plain_result("请在群聊中使用")
+            return
+
+        s = await self._get_state(gid)
+        async with s.lock:
+            flow = s.flow_level
+            last = s.last_reply_time
+            now = time.time()
+            recent = len([t for t in s.reply_timestamps
+                         if now - t < self.config.get("debounce", {}).get("reply_window_seconds", 300)])
+            pending = len(s.pending_messages)
+
+        if last > 0:
+            ago = int(now - last)
+            ago_s = f"{ago}s" if ago < 60 else f"{ago//60}min" if ago < 3600 else f"{ago//3600}h"
+        else:
+            ago_s = "━"
+
+        bar = "█" * int(flow / 5) + "░" * (20 - int(flow / 5))
+        yield event.plain_result(
+            f"🤖 状态\n"
+            f"心流 [{bar}] {flow:.0f}/100\n"
+            f"上次: {ago_s} | 窗口: {recent}/{self.config.get('debounce', {}).get('max_replies_per_window', 6)}\n"
+            f"缓冲: {pending}条"
+        )
+
+    @filter.command("mindflowreset")
+    async def cmd_reset(self, event: AstrMessageEvent):
+        gid = event.message_obj.group_id
+        if not gid:
+            yield event.plain_result("请在群聊中使用")
+            return
+        async with self._lock:
+            init = float(self.config.get("flow_engine", {}).get("initial_flow", 50))
+            old = self._states.get(gid)
+            if old:
+                self.accum.cancel_timer(old)
+            self._states[gid] = GroupState(
+                flow_level=init, last_update_time=time.time(),
+            )
+        yield event.plain_result(f"已重置，心流={init:.0f}/100")
+
+    async def terminate(self):
+        logger.info("拟人化群聊助手插件已卸载")
+        for s in self._states.values():
+            self.accum.cancel_timer(s)
+        self._states.clear()

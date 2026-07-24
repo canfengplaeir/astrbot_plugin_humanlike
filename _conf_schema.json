@@ -1,0 +1,218 @@
+{
+  "reply_engine": {
+    "description": "回复引擎设置",
+    "type": "object",
+    "hint": "控制机器人如何在群聊中自主发言",
+    "items": {
+      "override_group_replies": {
+        "description": "接管群聊回复",
+        "type": "bool",
+        "default": true,
+        "hint": "开启后，机器人将不再回复群里的每一条消息，而是交给心流引擎判断是否回复。关闭则叠加默认行为。"
+      },
+      "allow_command_pass": {
+        "description": "放行指令消息",
+        "type": "bool",
+        "default": true,
+        "hint": "开启后，以 / 开头的指令消息不会被拦截，其他插件的指令可以正常工作"
+      },
+      "inherit_persona": {
+        "description": "继承 AstrBot 人格",
+        "type": "bool",
+        "default": true,
+        "hint": "开启后，插件会读取 AstrBot 人格管理中配置的人格设定（如猫娘、傲娇等），回复和判断都会基于该人设。关闭则仅使用下方提示词。"
+      },
+      "enable_ai_judge": {
+        "description": "启用AI判断",
+        "type": "bool",
+        "default": true,
+        "hint": "使用LLM判断是否应该回复。关闭则仅根据心流值、随机概率等启发式规则判断"
+      },
+      "bot_name": {
+        "description": "机器人名字（备用）",
+        "type": "string",
+        "default": "",
+        "hint": "当 inherit_persona 关闭或人格未配置名称时，用于@提及检测和回复中的自我称呼"
+      },
+      "record_conversation": {
+        "description": "写入对话历史",
+        "type": "bool",
+        "default": true,
+        "hint": "开启后，插件生成的回复会写入AstrBot对话管理器，确保对话历史和WebUI聊天记录完整"
+      },
+      "judge_provider_id": {
+        "description": "AI判断专用模型",
+        "type": "string",
+        "default": "",
+        "hint": "指定用于AI判断（发言/沉默）的模型提供商。留空则使用默认聊天模型。推荐使用便宜快速的模型以降低延迟和成本。",
+        "_special": "select_provider"
+      }
+    }
+  },
+  "flow_engine": {
+    "description": "心流引擎设置",
+    "type": "object",
+    "hint": "控制机器人参与群聊的'意愿'水平（0-100），模拟人类注意力的波动",
+    "items": {
+      "flow_decay_rate": {
+        "description": "心流衰减速度",
+        "type": "float",
+        "default": 0.4,
+        "hint": "每秒衰减的心流值。值越大，机器人越快'走神'"
+      },
+      "initial_flow": {
+        "description": "初始心流值",
+        "type": "int",
+        "default": 50,
+        "hint": "每个群初始的心流值，50表示中性状态"
+      },
+      "flow_reply_threshold": {
+        "description": "回复心流阈值",
+        "type": "int",
+        "default": 45,
+        "hint": "心流值达到此阈值时才考虑回复。越低机器人话越多"
+      },
+      "flow_boost_mention": {
+        "description": "@提及加成",
+        "type": "int",
+        "default": 35,
+        "hint": "被@或名字被提及时增加的心流值"
+      },
+      "flow_boost_keyword": {
+        "description": "关键词加成",
+        "type": "int",
+        "default": 15,
+        "hint": "消息包含感兴趣的关键词时增加的心流值"
+      },
+      "flow_boost_question": {
+        "description": "问句加成",
+        "type": "int",
+        "default": 10,
+        "hint": "消息包含问号时额外增加的心流值"
+      },
+      "flow_boost_activity": {
+        "description": "活跃度加成",
+        "type": "int",
+        "default": 3,
+        "hint": "群聊消息频繁时每60秒内的额外加成"
+      },
+      "flow_decay_on_reply": {
+        "description": "回复后衰减",
+        "type": "int",
+        "default": 30,
+        "hint": "机器人回复后降低的心流值，模拟'说完话后暂时安静'的行为"
+      },
+      "random_silence_probability": {
+        "description": "随机沉默概率(%)",
+        "type": "float",
+        "default": 15.0,
+        "hint": "即使心流值达标，也有概率保持沉默，让机器人更不可预测。0-100"
+      }
+    }
+  },
+  "debounce": {
+    "description": "防抖/防刷屏设置",
+    "type": "object",
+    "hint": "限制机器人发言频率，避免短时间内大量刷屏",
+    "items": {
+      "min_reply_cooldown": {
+        "description": "最小回复间隔(秒)",
+        "type": "int",
+        "default": 25,
+        "hint": "两次发言之间最少间隔的秒数"
+      },
+      "max_replies_per_window": {
+        "description": "窗口内最大回复数",
+        "type": "int",
+        "default": 6,
+        "hint": "在时间窗口内最多发言次数"
+      },
+      "reply_window_seconds": {
+        "description": "时间窗口(秒)",
+        "type": "int",
+        "default": 300,
+        "hint": "统计发言次数的时间窗口"
+      },
+      "dynamic_cooldown_enabled": {
+        "description": "启用动态冷却",
+        "type": "bool",
+        "default": true,
+        "hint": "心流值高时自动缩短冷却时间，低时延长"
+      },
+      "min_dynamic_cooldown": {
+        "description": "动态冷却下限(秒)",
+        "type": "int",
+        "default": 10,
+        "hint": "动态冷却的最短间隔"
+      },
+      "max_dynamic_cooldown": {
+        "description": "动态冷却上限(秒)",
+        "type": "int",
+        "default": 60,
+        "hint": "动态冷却的最长间隔"
+      }
+    }
+  },
+  "accumulation": {
+    "description": "累积模式设置（批量处理）",
+    "type": "object",
+    "hint": "模拟人类看消息的延迟：消息爆发时积累，安静后再一起处理",
+    "items": {
+      "enabled": {
+        "description": "启用累积模式",
+        "type": "bool",
+        "default": true,
+        "hint": "开启后，非紧急消息会累积等待，安静后批量处理。关闭则每条消息独立处理（旧行为）"
+      },
+      "silence_threshold": {
+        "description": "沉默阈值(秒)",
+        "type": "int",
+        "default": 8,
+        "hint": "连续多少秒没有新消息后，触发批量处理。模拟人类看完最后一条消息后的反应时间"
+      },
+      "immediate_flow_threshold": {
+        "description": "立即回复心流阈值",
+        "type": "int",
+        "default": 85,
+        "hint": "心流值超过此阈值时，跳过累积等待，立即回复。值越低越容易插话"
+      },
+      "max_buffer_size": {
+        "description": "最大缓冲条数",
+        "type": "int",
+        "default": 20,
+        "hint": "缓冲消息达到此数量时，即使未到沉默时间也强制处理。防止内存无限增长"
+      }
+    }
+  },
+  "interest_keywords": {
+    "description": "感兴趣的关键词",
+    "type": "list",
+    "hint": "提到这些关键词时，心流值会上升。每行一个关键词。",
+    "default": []
+  },
+  "ai_judge_prompt": {
+    "description": "AI判断提示词（叠加指令）",
+    "type": "text",
+    "hint": "叠加在人格设定之后的附加指令，用于让LLM判断是否该发言。inherit_persona开启时，人格设定会自动出现在此之前。",
+    "editor_mode": true,
+    "editor_language": "plaintext",
+    "editor_theme": "vs-dark",
+    "default": "你是一个群聊中的普通成员。根据当前群聊上下文，判断你是否应该发言。\n\n判断原则：\n1. 被直接@或提到名字时必须回复\n2. 对方提出具体问题且你能回答时可以发言\n3. 对话内容是你熟悉或感兴趣的领域可以参与\n4. 可以接有趣的话题、发表简短看法或吐槽\n5. 纯表情、简短附和（如\"哈哈哈\"、\"草\"）一般不需要回复\n6. 灌水、刷屏、无意义内容不需要回复\n7. 已经有人在讨论的话题，有独特观点时可以插话\n\n请只回复\"发言\"或\"沉默\"，不要有其他内容。"
+  },
+  "ai_reply_prompt": {
+    "description": "AI回复提示词（叠加指令）",
+    "type": "text",
+    "hint": "叠加在人格设定之后的附加指令，控制回复的自然度和行为。inherit_persona开启时，人格设定会自动出现在此之前。",
+    "editor_mode": true,
+    "editor_language": "plaintext",
+    "editor_theme": "vs-dark",
+    "default": "你是一个群聊中的成员，请自然地回复消息。\n\n要求：\n1. 语气自然随性，像真人一样，不要有\"作为AI语言模型\"之类的表述\n2. 回复简洁，一般1-3句话，偶尔可以只回一两个词\n3. 不要过于热情、正式或冗长\n4. 可以适当附和、吐槽、开玩笑或表达个人观点\n5. 根据语境可以使用语气词（如\"草\"、\"确实\"、\"笑死\"）\n6. 不要在句末加括号描述动作或心理活动"
+  },
+  "reply_style": {
+    "description": "语气微调方向",
+    "type": "string",
+    "options": ["随性自然", "活泼可爱", "高冷简洁", "幽默风趣", "温柔体贴", "毒舌吐槽"],
+    "default": "随性自然",
+    "hint": "当 inherit_persona 开启时，此为在人格设定基础上的语气微调；关闭时则为完整回复风格"
+  }
+}

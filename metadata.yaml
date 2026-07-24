@@ -1,0 +1,27 @@
+name: astrbot_plugin_humanlike
+display_name: 拟人化群聊助手
+short_desc: 基于心流引擎与AI判断，让机器人在群聊中像真人一样自主发言
+desc: |
+  让机器人在群聊中像真人一样说话。
+  
+  核心功能：
+  - 心流引擎：根据群聊活跃度、关键词匹配、@提及等动态调整发言意愿
+  - 智能防抖：内置冷却时间和频率限制，避免刷屏
+  - AI自主判断：结合LLM判断是否应该参与当前话题
+  - 自然回复：AI生成的回复语气自然，不机械
+  
+  机器人不再是每条消息都回复的话痨，而是像人类一样有选择地参与对话。
+author: hdmm4
+version: 1.0.0
+repo: https://github.com/hdmm4/astrbot_plugin_humanlike
+astrbot_version: ">=4.16"
+support_platforms:
+  - aiocqhttp
+  - telegram
+  - qq_official
+  - wecom
+  - lark
+  - dingtalk
+  - discord
+  - slack
+  - kook
