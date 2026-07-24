@@ -215,11 +215,17 @@ class AIClient:
             f"关键词："
         )
         try:
-            pid = await self._provider_id(event, for_judge=True)
+            logger.info(f"正在调用 LLM 生成关键词... persona={persona_name}")
+            pid = await self._provider_id(event, for_judge=False)
+            logger.info(f"关键词生成使用 provider: {pid}")
             if not pid:
+                logger.warning("无可用 provider，关键词生成失败")
                 return []
+            t0 = time.time()
             resp = await self._ctx.llm_generate(chat_provider_id=pid, prompt=prompt)
+            elapsed = (time.time() - t0) * 1000
             text = resp.completion_text.strip()
+            logger.info(f"LLM 返回 ({elapsed:.0f}ms): {text[:100]}")
             keywords = [
                 line.strip().lstrip("0123456789.、-•· ") for line in text.split("\n")
                 if line.strip()

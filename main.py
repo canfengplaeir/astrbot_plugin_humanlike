@@ -60,8 +60,10 @@ class HumanLikePlugin(Star):
     async def _gen_and_save_keywords(self, event: AstrMessageEvent) -> list[str]:
         self._keywords_generating = True
         try:
+            logger.info("开始获取人格设定...")
             persona_prompt = await self.persona.system_prompt(event)
             persona_name = await self.persona.name(event)
+            logger.info(f"人格: name={persona_name or '(无)'}, prompt长度={len(persona_prompt)}")
             if not persona_prompt:
                 logger.warning("无人格设定，无法生成关键词")
                 return []
