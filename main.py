@@ -312,6 +312,15 @@ class HumanLikePlugin(Star):
     async def _on_silence_timeout(self, group_id: str):
         await self._run_batch_pipeline(group_id)
 
+    async def _start_retry_timer(self, group_id: str, state: GroupState):
+
+        async def _retry():
+            await asyncio.sleep(20)
+            await self._run_batch_pipeline(group_id)
+
+        self.accum.cancel_timer(state)
+        state.silence_timer = asyncio.ensure_future(_retry())
+
     async def _run_batch_pipeline(self, group_id: str):
         state = await self._get_state(group_id)
 
@@ -327,8 +336,8 @@ class HumanLikePlugin(Star):
 
         now = time.time()
         if not self.debounce.check(state, now):
-            logger.info(f"[群:{group_id}] 批处理: 防抖拦截，延时重试")
-            await self.accum.start_timer(group_id, state, self._on_silence_timeout)
+            logger.info(f"[群:{group_id}] 批处理: 防抖拦截，20s后重试")
+            await self._start_retry_timer(group_id, state)
             return
 
         async with state.lock:
