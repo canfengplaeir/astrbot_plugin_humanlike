@@ -200,3 +200,33 @@ class AIClient:
         except Exception as e:
             logger.error(f"AI批量回复生成失败: {e}")
             return ""
+
+    # ── 关键词生成 ────────────────────────────────────────────
+
+    async def generate_keywords(self, event: AstrMessageEvent,
+                                persona_prompt: str,
+                                persona_name: str) -> list[str]:
+        """根据人格设定，由 AI 生成感兴趣的关键词列表。"""
+        prompt = (
+            f"根据以下人格设定，生成10个该角色可能感兴趣的话题关键词。\n"
+            f"关键词应该是简短的词语（1-4个字），每行一个，不要编号。\n\n"
+            f"人格名称：{persona_name or '（未设定）'}\n"
+            f"人格设定：\n{persona_prompt[:500]}\n\n"
+            f"关键词："
+        )
+        try:
+            pid = await self._provider_id(event, for_judge=True)
+            if not pid:
+                return []
+            resp = await self._ctx.llm_generate(chat_provider_id=pid, prompt=prompt)
+            text = resp.completion_text.strip()
+            keywords = [
+                line.strip().lstrip("0123456789.、-•· ") for line in text.split("\n")
+                if line.strip()
+            ]
+            keywords = [kw for kw in keywords if len(kw) <= 8]
+            logger.info(f"AI生成关键词 ({len(keywords)}个): {keywords[:10]}")
+            return keywords[:15]
+        except Exception as e:
+            logger.error(f"关键词生成失败: {e}")
+            return []

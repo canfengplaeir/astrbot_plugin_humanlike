@@ -35,8 +35,39 @@ class HumanLikePlugin(Star):
         self.accum = AccumulationManager(config)
         self.persona = PersonaBridge(context, config)
         self.ai = AIClient(context, config)
+        self._keywords_loaded = False
+
+        asyncio.ensure_future(self._init_keywords())
 
         logger.info("拟人化群聊助手插件已加载")
+
+    async def _init_keywords(self):
+        if not self.config.get("reply_engine", {}).get("use_ai_keywords", False):
+            logger.info("AI关键词生成未启用")
+            return
+        try:
+            saved = await self.get_kv_data("ai_keywords", None)
+            if saved and isinstance(saved, list) and len(saved) > 0:
+                self.flow.set_ai_keywords(saved)
+                logger.info(f"已加载 {len(saved)} 个AI生成关键词")
+            else:
+                logger.info("无已保存的AI关键词，将在首次消息时自动生成")
+        except Exception as e:
+            logger.debug(f"加载AI关键词失败（首次使用正常）: {e}")
+        self._keywords_loaded = True
+
+    async def _gen_and_save_keywords(self, event: AstrMessageEvent) -> list[str]:
+        persona_prompt = await self.persona.system_prompt(event)
+        persona_name = await self.persona.name(event)
+        if not persona_prompt:
+            logger.warning("无人格设定，无法生成关键词")
+            return []
+        keywords = await self.ai.generate_keywords(event, persona_prompt, persona_name)
+        if keywords:
+            self.flow.set_ai_keywords(keywords)
+            await self.put_kv_data("ai_keywords", keywords)
+            logger.info(f"AI生成并保存 {len(keywords)} 个关键词")
+        return keywords
 
     # ============================================================
     # 状态管理
@@ -91,6 +122,10 @@ class HumanLikePlugin(Star):
         if self.persona.enabled:
             persona_prompt = await self.persona.system_prompt(event)
             persona_name = await self.persona.name(event)
+
+        if self.config.get("reply_engine", {}).get("use_ai_keywords", False):
+            if not self.flow.has_ai_keywords and self._keywords_loaded:
+                asyncio.ensure_future(self._gen_and_save_keywords(event))
 
         now = time.time()
         msg_text = event.message_str or ""
@@ -362,6 +397,23 @@ class HumanLikePlugin(Star):
                 flow_level=init, last_update_time=time.time(),
             )
         yield event.plain_result(f"已重置，心流={init:.0f}/100")
+
+    @filter.command("genkeywords")
+    async def cmd_genkeywords(self, event: AstrMessageEvent):
+        """让 AI 根据当前人格生成感兴趣的关键词"""
+        if not self.config.get("reply_engine", {}).get("use_ai_keywords", False):
+            yield event.plain_result("AI关键词生成未启用，请在插件配置中开启")
+            return
+        yield event.plain_result("🔄 正在根据人格设定生成关键词...")
+        keywords = await self._gen_and_save_keywords(event)
+        if keywords:
+            yield event.plain_result(
+                f"✅ 已生成 {len(keywords)} 个关键词：\n" +
+                "\n".join(f"  • {kw}" for kw in keywords)
+            )
+        else:
+            yield event.plain_result("❌ 关键词生成失败，请检查人格是否已配置")
+        event.stop_event()
 
     async def terminate(self):
         logger.info("拟人化群聊助手插件已卸载")

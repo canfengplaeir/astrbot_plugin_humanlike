@@ -8,6 +8,21 @@ class FlowEngine:
         self._cfg = config.get("flow_engine", {})
         self._reply_cfg = config.get("reply_engine", {})
         self._interest_keywords: list = config.get("interest_keywords", []) or []
+        self._ai_keywords: list = []
+
+    def set_ai_keywords(self, keywords: list[str]):
+        self._ai_keywords = [kw for kw in keywords if kw]
+
+    @property
+    def has_ai_keywords(self) -> bool:
+        return len(self._ai_keywords) > 0
+
+    def _all_keywords(self) -> list:
+        merged = list(self._interest_keywords)
+        for kw in self._ai_keywords:
+            if kw not in merged:
+                merged.append(kw)
+        return merged
 
     @property
     def reply_threshold(self) -> float:
@@ -48,7 +63,7 @@ class FlowEngine:
                     triggers.append(f"名字+{boost:.0f}")
                     break
 
-        for kw in self._interest_keywords:
+        for kw in self._all_keywords():
             if str(kw).lower() in message_text.lower():
                 boost = float(self._cfg.get("flow_boost_keyword", 15))
                 state.flow_level = min(100, state.flow_level + boost)
