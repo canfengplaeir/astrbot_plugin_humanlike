@@ -67,12 +67,19 @@ class HumanLikePlugin(Star):
             if not persona_prompt:
                 logger.warning("无人格设定，无法生成关键词")
                 return []
-            keywords = await self.ai.generate_keywords(event, persona_prompt, persona_name)
+            logger.info("开始调用 LLM 生成关键词...")
+            keywords = await asyncio.wait_for(
+                self.ai.generate_keywords(event, persona_prompt, persona_name),
+                timeout=60,
+            )
             if keywords:
                 self.flow.set_ai_keywords(keywords)
                 await self.put_kv_data("ai_keywords", keywords)
                 logger.info(f"AI生成并保存 {len(keywords)} 个关键词")
             return keywords
+        except asyncio.TimeoutError:
+            logger.error("关键词生成超时（60秒）")
+            return []
         finally:
             self._keywords_generating = False
 
@@ -437,20 +444,20 @@ class HumanLikePlugin(Star):
         """让 AI 根据当前人格生成感兴趣的关键词"""
         event.stop_event()
         if not self.config.get("reply_engine", {}).get("use_ai_keywords", False):
-            yield event.plain_result("AI关键词生成未启用，请在插件配置中开启")
+            await event.send(event.plain_result("AI关键词生成未启用，请在插件配置中开启"))
             return
         if self._keywords_generating:
-            yield event.plain_result("⏳ 关键词正在生成中，请稍候...")
+            await event.send(event.plain_result("⏳ 关键词正在生成中，请稍候..."))
             return
-        yield event.plain_result("🔄 正在根据人格设定生成关键词...")
+        await event.send(event.plain_result("🔄 正在根据人格设定生成关键词..."))
         keywords = await self._gen_and_save_keywords(event)
         if keywords:
-            yield event.plain_result(
+            await event.send(event.plain_result(
                 f"✅ 已生成 {len(keywords)} 个关键词：\n" +
                 "\n".join(f"  • {kw}" for kw in keywords)
-            )
+            ))
         else:
-            yield event.plain_result("❌ 关键词生成失败，请检查人格是否已配置")
+            await event.send(event.plain_result("❌ 关键词生成失败，请检查人格是否已配置"))
 
     async def terminate(self):
         logger.info("拟人化群聊助手插件已卸载")
