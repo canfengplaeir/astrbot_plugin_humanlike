@@ -529,13 +529,21 @@ class HumanLikePlugin(Star):
             persona_name = persona.get("name", "") if persona else ""
             if not persona_prompt:
                 self._keywords_generating = False
-                return error_response("无人格设定")
+                return error_response("无人格设定，请先在人格管理中创建人格")
 
-            providers = self.context.get_all_providers()
-            pid = providers[0].meta.id if providers else None
+            pid = None
+            try:
+                providers = self.context.get_all_providers()
+                if providers:
+                    p = providers[0]
+                    pid = (getattr(getattr(p, 'meta', None), 'id', None)
+                           or getattr(p, 'name', None)
+                           or str(p))
+            except Exception:
+                pass
             if not pid:
                 self._keywords_generating = False
-                return error_response("无可用AI提供商")
+                return error_response("无可用AI提供商，请先在WebUI配置模型")
 
             prompt = (
                 f"根据以下人格设定，生成10个该角色可能感兴趣的话题关键词。\n"
