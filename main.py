@@ -336,16 +336,15 @@ class HumanLikePlugin(Star):
         )
 
         now = time.time()
-        if not self.debounce.check(state, now):
+        debounce_ok = self.debounce.check(state, now)
+        if not debounce_ok:
             state.retry_count += 1
             if state.retry_count > 2:
-                state.pending_messages.clear()
-                logger.info(f"[群:{group_id}] 批处理: 重试{state.retry_count}次仍拦截，丢弃")
+                logger.info(f"[群:{group_id}] 批处理: 重试{state.retry_count}次，跳过防抖直接交AI判断")
             else:
                 logger.info(f"[群:{group_id}] 批处理: 防抖拦截({state.retry_count}/3)，20s后重试")
                 await self._start_retry_timer(group_id, state)
-            return
-        state.retry_count = 0
+                return
 
         async with state.lock:
             state.pending_messages.clear()
