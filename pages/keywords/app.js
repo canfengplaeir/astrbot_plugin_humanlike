@@ -11,6 +11,9 @@ const clearAi = document.getElementById("clearAi");
 const manualCount = document.getElementById("manualCount");
 const aiCount = document.getElementById("aiCount");
 const personaSelect = document.getElementById("personaSelect");
+const testInput = document.getElementById("testInput");
+const testBtn = document.getElementById("testBtn");
+const testResult = document.getElementById("testResult");
 
 await bridge.ready();
 
@@ -94,6 +97,28 @@ async function loadPersonas() {
     if (!personas.length) personaSelect.innerHTML = '<option value="">（默认人格）</option>';
   } catch { personaSelect.innerHTML = '<option value="">（默认）</option>'; }
 }
+
+testBtn.onclick = async () => {
+  const text = testInput.value.trim();
+  if (!text) return;
+  testResult.className = "status-line";
+  testResult.textContent = "";
+  try {
+    const { hits, total_keywords } = await bridge.apiPost("keywords/test", { text });
+    if (hits.length) {
+      testResult.textContent = `匹配 ${hits.length}/${total_keywords}: ${hits.map(k => `<b>${esc(k)}</b>`).join("、")} `;
+      testResult.className = "status-line success";
+      testResult.innerHTML = testResult.textContent.replace(/&lt;b&gt;/g, "<b>").replace(/&lt;\/b&gt;/g, "</b>");
+    } else {
+      testResult.textContent = `无匹配 (共 ${total_keywords} 个关键词)`;
+      testResult.className = "status-line";
+    }
+  } catch {
+    testResult.textContent = "测试失败";
+    testResult.className = "status-line error";
+  }
+};
+testInput.onkeydown = e => { if (e.key === "Enter") testBtn.click(); };
 
 function esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
 function escAttr(s) { return s.replace(/"/g, "&quot;"); }

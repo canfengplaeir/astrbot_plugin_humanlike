@@ -205,10 +205,11 @@ class AIClient:
 
     async def generate_keywords(self, event: AstrMessageEvent,
                                 persona_prompt: str,
-                                persona_name: str) -> list[str]:
+                                persona_name: str,
+                                count: int = 10) -> list[str]:
         """根据人格设定，由 AI 生成感兴趣的关键词列表。"""
         prompt = (
-            f"根据以下人格设定，生成10个该角色可能感兴趣的话题关键词。\n"
+            f"根据以下人格设定，生成{count}个该角色可能感兴趣的话题关键词。\n"
             f"关键词应该是简短的词语（1-4个字），每行一个，不要编号。\n\n"
             f"人格名称：{persona_name or '（未设定）'}\n"
             f"人格设定：\n{persona_prompt[:500]}\n\n"
@@ -232,7 +233,7 @@ class AIClient:
             ]
             keywords = [kw for kw in keywords if len(kw) <= 8]
             logger.info(f"AI生成关键词 ({len(keywords)}个): {keywords[:10]}")
-            return keywords[:15]
+            return keywords[:max(count, len(keywords))]
         except Exception as e:
             logger.error(f"关键词生成失败: {e}")
             return []

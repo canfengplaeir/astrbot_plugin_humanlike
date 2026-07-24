@@ -60,6 +60,8 @@ class HumanLikePlugin(Star):
             f"/{PLUGIN_NAME}/keywords/personas", self._api_kw_personas, ["GET"], "人格列表")
         context.register_web_api(
             f"/{PLUGIN_NAME}/status/groups", self._api_status, ["GET"], "群聊状态")
+        context.register_web_api(
+            f"/{PLUGIN_NAME}/keywords/test", self._api_kw_test, ["POST"], "测试关键词")
 
         asyncio.ensure_future(self._init_keywords())
 
@@ -91,8 +93,9 @@ class HumanLikePlugin(Star):
                 logger.warning("无人格设定，无法生成关键词")
                 return []
             logger.info("开始调用 LLM 生成关键词...")
+            count = int(self.config.get("reply_engine", {}).get("keyword_count", 10))
             keywords = await asyncio.wait_for(
-                self.ai.generate_keywords(event, persona_prompt, persona_name),
+                self.ai.generate_keywords(event, persona_prompt, persona_name, count),
                 timeout=60,
             )
             if keywords:
@@ -564,8 +567,9 @@ class HumanLikePlugin(Star):
                 self._keywords_generating = False
                 return error_response("无可用AI提供商，请先在WebUI配置模型")
 
+            count = int(self.config.get("reply_engine", {}).get("keyword_count", 10))
             prompt = (
-                f"根据以下人格设定，生成10个该角色可能感兴趣的话题关键词。\n"
+                f"根据以下人格设定，生成{count}个该角色可能感兴趣的话题关键词。\n"
                 f"关键词应该是简短的词语（1-4个字），每行一个，不要编号。\n\n"
                 f"人格名称：{persona_name or '（未设定）'}\n"
                 f"人格设定：\n{persona_prompt[:500]}\n\n"
@@ -634,6 +638,18 @@ class HumanLikePlugin(Star):
             "override": self._override(),
             "accum_enabled": self.accum.enabled,
         })
+
+    async def _api_kw_test(self):
+        body = await request.json(default={})
+        text = (body.get("text") or "").strip().lower()
+        if not text:
+            return json_response({"hits": []})
+        all_kw = list(self.flow._all_keywords()) if hasattr(self.flow, '_all_keywords') else []
+        hits = []
+        for kw in all_kw:
+            if kw and kw.lower() in text:
+                hits.append(kw)
+        return json_response({"hits": hits, "total_keywords": len(all_kw)})
 
     async def terminate(self):
         logger.info("拟人化群聊助手插件已卸载")

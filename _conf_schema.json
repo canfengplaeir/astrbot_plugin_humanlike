@@ -22,6 +22,12 @@
         "default": false,
         "hint": "开启后，插件会根据当前人格设定自动生成感兴趣的关键词。生成的关键词与手动配置的关键词合并使用。使用 /genkeywords 手动触发生成。"
       },
+      "keyword_count": {
+        "description": "AI生成关键词数量",
+        "type": "int",
+        "default": 10,
+        "hint": "每次AI生成的关键词数量。推荐5-15个"
+      },
       "inherit_persona": {
         "description": "继承 AstrBot 人格",
         "type": "bool",
