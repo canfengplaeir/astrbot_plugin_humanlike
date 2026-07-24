@@ -36,6 +36,7 @@ class HumanLikePlugin(Star):
         self.persona = PersonaBridge(context, config)
         self.ai = AIClient(context, config)
         self._keywords_loaded = False
+        self._keywords_generating = False
 
         asyncio.ensure_future(self._init_keywords())
 
@@ -57,17 +58,21 @@ class HumanLikePlugin(Star):
         self._keywords_loaded = True
 
     async def _gen_and_save_keywords(self, event: AstrMessageEvent) -> list[str]:
-        persona_prompt = await self.persona.system_prompt(event)
-        persona_name = await self.persona.name(event)
-        if not persona_prompt:
-            logger.warning("无人格设定，无法生成关键词")
-            return []
-        keywords = await self.ai.generate_keywords(event, persona_prompt, persona_name)
-        if keywords:
-            self.flow.set_ai_keywords(keywords)
-            await self.put_kv_data("ai_keywords", keywords)
-            logger.info(f"AI生成并保存 {len(keywords)} 个关键词")
-        return keywords
+        self._keywords_generating = True
+        try:
+            persona_prompt = await self.persona.system_prompt(event)
+            persona_name = await self.persona.name(event)
+            if not persona_prompt:
+                logger.warning("无人格设定，无法生成关键词")
+                return []
+            keywords = await self.ai.generate_keywords(event, persona_prompt, persona_name)
+            if keywords:
+                self.flow.set_ai_keywords(keywords)
+                await self.put_kv_data("ai_keywords", keywords)
+                logger.info(f"AI生成并保存 {len(keywords)} 个关键词")
+            return keywords
+        finally:
+            self._keywords_generating = False
 
     # ============================================================
     # 状态管理
@@ -124,7 +129,7 @@ class HumanLikePlugin(Star):
             persona_name = await self.persona.name(event)
 
         if self.config.get("reply_engine", {}).get("use_ai_keywords", False):
-            if not self.flow.has_ai_keywords and self._keywords_loaded:
+            if not self.flow.has_ai_keywords and self._keywords_loaded and not self._keywords_generating:
                 asyncio.ensure_future(self._gen_and_save_keywords(event))
 
         now = time.time()
@@ -403,6 +408,9 @@ class HumanLikePlugin(Star):
         """让 AI 根据当前人格生成感兴趣的关键词"""
         if not self.config.get("reply_engine", {}).get("use_ai_keywords", False):
             yield event.plain_result("AI关键词生成未启用，请在插件配置中开启")
+            return
+        if self._keywords_generating:
+            yield event.plain_result("⏳ 关键词正在生成中，请稍候...")
             return
         yield event.plain_result("🔄 正在根据人格设定生成关键词...")
         keywords = await self._gen_and_save_keywords(event)
