@@ -18,7 +18,7 @@ class AccumulationManager:
         return self._cfg.get("enabled", True)
 
     def silence_threshold(self) -> float:
-        return float(self._cfg.get("silence_threshold", 8))
+        return float(self._cfg.get("silence_threshold", 5))
 
     def is_immediate_trigger(self, event: AstrMessageEvent,
                              flow_level: float, persona_name: str) -> bool:
@@ -38,7 +38,7 @@ class AccumulationManager:
                 logger.debug(f"累积: 名字'{name}'触发立即回复")
                 return True
 
-        threshold = int(self._cfg.get("immediate_flow_threshold", 85))
+        threshold = int(self._cfg.get("immediate_flow_threshold", 70))
         if flow_level >= threshold:
             logger.debug(f"累积: 心流{flow_level:.0f}>={threshold}触发立即回复")
             return True

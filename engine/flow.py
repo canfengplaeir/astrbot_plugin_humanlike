@@ -26,10 +26,10 @@ class FlowEngine:
 
     @property
     def reply_threshold(self) -> float:
-        return float(self._cfg.get("flow_reply_threshold", 45))
+        return float(self._cfg.get("flow_reply_threshold", 30))
 
     def decay_rate(self) -> float:
-        return float(self._cfg.get("flow_decay_rate", 0.4))
+        return float(self._cfg.get("flow_decay_rate", 0.25))
 
     def update(self, state, event, message_text: str, current_time: float,
                persona_name: str = ""):
@@ -71,7 +71,7 @@ class FlowEngine:
                 break
 
         if "?" in message_text or "？" in message_text:
-            boost = float(self._cfg.get("flow_boost_question", 10))
+            boost = float(self._cfg.get("flow_boost_question", 20))
             state.flow_level = min(100, state.flow_level + boost)
             triggers.append(f"问号+{boost:.0f}")
 
