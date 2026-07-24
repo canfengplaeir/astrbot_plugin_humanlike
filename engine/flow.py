@@ -58,7 +58,7 @@ class FlowEngine:
                     self._reply_cfg.get("bot_name", "")] if n]
             for name in names:
                 if name in message_text:
-            boost = float(self._cfg.get("flow_boost_mention", 45))
+                    boost = float(self._cfg.get("flow_boost_mention", 45))
                     state.flow_level = min(100, state.flow_level + boost)
                     triggers.append(f"名字+{boost:.0f}")
                     break
