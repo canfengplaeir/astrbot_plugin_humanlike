@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>拟人化群聊助手</title>
+  <style>
+:root {
+  --bg: #fef9f0; --paper: #fffdf7; --charcoal: #3d3629; --muted: #8a7e6e; --faint: #e6ddd0;
+  --amber: #c17a3a; --amber-light: #f5e6d3; --sage: #7a9a6e; --sage-light: #e8f0e3;
+  --terracotta: #c15b3b; --terracotta-light: #fce8e2; --side-bg: #f5efe4; --radius: 12px; --radius-sm: 8px;
+}
+[data-theme="dark"] {
+  --bg: #2a2520; --paper: #38332d; --charcoal: #e8e0d0; --muted: #a39888; --faint: #4a4540;
+  --amber: #d4a05a; --amber-light: #3d3025; --sage: #8db580; --sage-light: #2d3528;
+  --terracotta: #d46a52; --terracotta-light: #3d2825; --side-bg: #302b25;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--charcoal); font-family: "PingFang SC","Microsoft YaHei",-apple-system,sans-serif; font-size: 14px; line-height: 1.6; display: flex; min-height: 100vh; }
+.sidebar { width: 180px; background: var(--side-bg); border-right: 1px solid var(--faint); padding: 24px 0; flex-shrink: 0; }
+.sidebar h3 { font-size: 15px; padding: 0 20px 16px; border-bottom: 1px solid var(--faint); margin-bottom: 8px; letter-spacing: -0.02em; }
+.sidebar a { display: flex; align-items: center; gap: 8px; padding: 10px 20px; font-size: 14px; color: var(--muted); text-decoration: none; transition: all 0.15s; cursor: pointer; }
+.sidebar a:hover { color: var(--charcoal); background: rgba(0,0,0,0.03); }
+.sidebar a.active { color: var(--amber); font-weight: 600; background: var(--amber-light); }
+.content { flex: 1; padding: 28px 32px; overflow-y: auto; }
+.tab { display: none; }
+.tab.active { display: block; }
+
+h2 { font-size: 22px; letter-spacing: -0.02em; margin-bottom: 4px; }
+.subtitle { font-size: 13px; color: var(--muted); margin-bottom: 24px; }
+
+.card { background: var(--paper); border: 1px solid var(--faint); border-radius: var(--radius); padding: 20px; margin-bottom: 16px; box-shadow: 0 2px 6px rgba(0,0,0,0.04); }
+.card h3 { font-size: 15px; margin-bottom: 6px; }
+.card .hint { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+
+.field { margin-bottom: 12px; }
+.field label { display: flex; align-items: center; justify-content: space-between; font-size: 14px; font-weight: 500; gap: 10px; }
+.field .hint { font-size: 12px; color: var(--muted); margin: 2px 0 0; }
+
+input[type="checkbox"] { appearance: none; width: 42px; height: 24px; background: var(--faint); border-radius: 12px; cursor: pointer; position: relative; transition: background 0.2s; flex-shrink: 0; }
+input[type="checkbox"]::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; background: #fff; border-radius: 50%; transition: transform 0.2s; }
+input[type="checkbox"]:checked { background: var(--amber); }
+input[type="checkbox"]:checked::after { transform: translateX(18px); }
+
+.inp { width: 100%; padding: 8px 12px; border: 1.5px solid var(--faint); border-radius: var(--radius-sm); background: var(--cream); color: var(--charcoal); font-size: 14px; font-family: inherit; outline: none; transition: border-color 0.2s,box-shadow 0.2s; margin-top: 4px; }
+.inp:focus { border-color: var(--amber); box-shadow: 0 0 0 3px var(--amber-light); }
+
+select.inp { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%238a7e6e' stroke-width='1.5' fill='none'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 32px; cursor: pointer; }
+
+.range-field { margin-bottom: 14px; }
+.range-field label { display: flex; justify-content: space-between; font-size: 14px; font-weight: 500; margin-bottom: 4px; }
+.range-field output { font-size: 13px; color: var(--amber); font-weight: 600; }
+input[type="range"] { width: 100%; height: 6px; appearance: none; background: var(--faint); border-radius: 3px; outline: none; }
+input[type="range"]::-webkit-slider-thumb { appearance: none; width: 20px; height: 20px; border-radius: 50%; background: var(--amber); cursor: pointer; border: 2px solid var(--paper); box-shadow: 0 1px 3px rgba(0,0,0,0.15); }
+input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.15); }
+
+.input-row { display: flex; gap: 10px; margin-bottom: 10px; }
+.input-row input,.input-row select { flex:1; padding: 10px 14px; border: 1.5px solid var(--faint); border-radius: var(--radius-sm); background: var(--cream); color: var(--charcoal); font-size: 14px; font-family: inherit; outline: none; }
+.input-row input:focus,.input-row select:focus { border-color: var(--amber); box-shadow: 0 0 0 3px var(--amber-light); }
+
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 9px 20px; border: none; border-radius: var(--radius-sm); cursor: pointer; font-size: 14px; font-weight: 500; font-family: inherit; transition: all 0.15s; }
+.btn-primary { background: var(--amber); color: #fff; }
+.btn-primary:hover { background: var(--terracotta); }
+.btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-ghost { background: none; color: var(--muted); padding: 6px 12px; font-size: 13px; }
+.btn-ghost:hover { color: var(--terracotta); }
+
+.tags { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; min-height: 32px; }
+.tag { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 20px; font-size: 13px; font-weight: 500; animation: popIn 0.25s cubic-bezier(0.16,1,0.3,1); }
+@keyframes popIn { from{opacity:0;transform:scale(0.85)} to{opacity:1;transform:scale(1)} }
+.tag.manual { background: var(--amber-light); color: var(--amber); }
+.tag.ai { background: var(--sage-light); color: var(--sage); }
+.tag-del { background: none; border: none; cursor: pointer; color: inherit; opacity: 0.5; font-size: 17px; line-height: 1; padding: 0; }
+.tag-del:hover { opacity: 1; }
+
+.empty-msg { color: var(--muted); font-size: 13px; padding: 4px 0; opacity: 0.7; }
+.status-line { font-size: 13px; margin-top: 8px; }
+.status-line.success { color: var(--sage); }
+.status-line.error { color: var(--terracotta); }
+.actions { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+
+table { width: 100%; border-collapse: collapse; }
+thead th { padding: 10px 14px; text-align: left; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); border-bottom: 1.5px solid var(--faint); }
+tbody td { padding: 12px 14px; font-size: 14px; border-bottom: 1px solid var(--faint); }
+td:nth-child(2) { font-family: "SF Mono","Consolas",monospace; font-size: 12px; white-space: nowrap; }
+td:nth-child(5) { font-weight: 600; }
+
+.flow-row { display: flex; align-items: center; gap: 8px; }
+.flow-bar-wrap { flex: 1; height: 8px; background: var(--faint); border-radius: 4px; overflow: hidden; }
+.flow-bar-fill { height: 100%; border-radius: 4px; transition: width 0.6s cubic-bezier(0.16,1,0.3,1); }
+.flow-bar-fill.low { background: var(--muted); }
+.flow-bar-fill.mid { background: var(--amber); }
+.flow-bar-fill.high { background: var(--terracotta); }
+.flow-val { font-size: 13px; font-weight: 600; min-width: 32px; text-align: right; }
+
+.spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.25); border-top-color: #fff; border-radius: 50%; animation: spin 0.5s linear infinite; }
+@keyframes spin { to{transform:rotate(360deg)} }
+
+.meta-bar { display: flex; gap: 14px; font-size: 12px; color: var(--muted); margin-top: 6px; }
+.meta-bar span { display: flex; align-items: center; gap: 4px; }
+.meta-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--sage); }
+.meta-dot.off { background: var(--muted); }
+
+.refresh-row { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+.auto-refresh { font-size: 12px; color: var(--muted); }
+  </style>
+</head>
+<body>
+
+<nav class="sidebar">
+  <h3>拟人化助手</h3>
+  <a data-tab="settings" class="active">⚙️ 插件设置</a>
+  <a data-tab="keywords">🏷️ 关键词</a>
+  <a data-tab="status">📊 状态面板</a>
+</nav>
+
+<div class="content">
+<!-- ====== SETTINGS ====== -->
+<div class="tab active" id="tab-settings">
+  <h2>插件设置</h2>
+  <p class="subtitle">所有配置项可在此操作，修改后保存即时生效</p>
+  <form id="settingsForm" autocomplete="off">
+    <div class="card"><h3>回复引擎</h3>
+      <div class="field"><label><span>接管群聊回复</span><input type="checkbox" name="reply_engine.override_group_replies"></label><span class="hint">开启后交给心流引擎判断</span></div>
+      <div class="field"><label><span>放行指令</span><input type="checkbox" name="reply_engine.allow_command_pass"></label></div>
+      <div class="field"><label><span>继承人格</span><input type="checkbox" name="reply_engine.inherit_persona"></label></div>
+      <div class="field"><label><span>AI判断</span><input type="checkbox" name="reply_engine.enable_ai_judge"></label></div>
+      <div class="field"><label><span>记录对话</span><input type="checkbox" name="reply_engine.record_conversation"></label></div>
+      <div class="field"><label><span>AI关键词</span><input type="checkbox" name="reply_engine.use_ai_keywords"></label></div>
+      <div class="field"><label>关键词数量</label><input type="number" name="reply_engine.keyword_count" min="3" max="30" class="inp"></div>
+      <div class="field"><label>机器人名字(备用)</label><input type="text" name="reply_engine.bot_name" class="inp"></div>
+      <div class="field"><label>回复风格</label><select name="reply_style" class="inp"><option>随性自然</option><option>活泼可爱</option><option>高冷简洁</option><option>幽默风趣</option><option>温柔体贴</option><option>毒舌吐槽</option></select></div>
+    </div>
+    <div class="card"><h3>心流引擎</h3>
+      <div class="range-field"><label>回复阈值 <output></output></label><input type="range" name="flow_engine.flow_reply_threshold" min="10" max="80" step="5"></div>
+      <div class="range-field"><label>衰减速度 <output></output></label><input type="range" name="flow_engine.flow_decay_rate" min="0.1" max="1" step="0.05"></div>
+      <div class="field"><label>初始心流</label><input type="number" name="flow_engine.initial_flow" min="0" max="100" class="inp"></div>
+      <div class="range-field"><label>@提及加成 <output></output></label><input type="range" name="flow_engine.flow_boost_mention" min="10" max="60" step="5"></div>
+      <div class="range-field"><label>关键词加成 <output></output></label><input type="range" name="flow_engine.flow_boost_keyword" min="5" max="40" step="5"></div>
+      <div class="range-field"><label>问句加成 <output></output></label><input type="range" name="flow_engine.flow_boost_question" min="5" max="40" step="5"></div>
+      <div class="range-field"><label>活跃加成 <output></output></label><input type="range" name="flow_engine.flow_boost_activity" min="1" max="10" step="1"></div>
+      <div class="range-field"><label>发言后衰减 <output></output></label><input type="range" name="flow_engine.flow_decay_on_reply" min="5" max="50" step="5"></div>
+      <div class="range-field"><label>随机沉默(%) <output></output></label><input type="range" name="flow_engine.random_silence_probability" min="0" max="40" step="5"></div>
+    </div>
+    <div class="card"><h3>防抖</h3>
+      <div class="range-field"><label>最小间隔(秒) <output></output></label><input type="range" name="debounce.min_reply_cooldown" min="5" max="60" step="1"></div>
+      <div class="range-field"><label>窗口最大发言 <output></output></label><input type="range" name="debounce.max_replies_per_window" min="2" max="20" step="1"></div>
+      <div class="field"><label>时间窗口(秒)</label><input type="number" name="debounce.reply_window_seconds" min="60" max="600" class="inp"></div>
+      <div class="field"><label><span>动态冷却</span><input type="checkbox" name="debounce.dynamic_cooldown_enabled"></label></div>
+      <div class="field"><label>冷却下限(秒)</label><input type="number" name="debounce.min_dynamic_cooldown" min="3" max="30" class="inp"></div>
+      <div class="field"><label>冷却上限(秒)</label><input type="number" name="debounce.max_dynamic_cooldown" min="20" max="120" class="inp"></div>
+    </div>
+    <div class="card"><h3>累积模式</h3>
+      <div class="field"><label><span>启用累积</span><input type="checkbox" name="accumulation.enabled"></label></div>
+      <div class="range-field"><label>沉默阈值(秒) <output></output></label><input type="range" name="accumulation.silence_threshold" min="2" max="20" step="1"></div>
+      <div class="range-field"><label>立即回复阈值 <output></output></label><input type="range" name="accumulation.immediate_flow_threshold" min="50" max="100" step="5"></div>
+      <div class="field"><label>缓冲上限(条)</label><input type="number" name="accumulation.max_buffer_size" min="5" max="50" class="inp"></div>
+    </div>
+    <div class="actions"><button type="submit" class="btn btn-primary" id="saveBtn">保存设置</button><span class="status-line" id="saveStatus"></span></div>
+  </form>
+</div>
+
+<!-- ====== KEYWORDS ====== -->
+<div class="tab" id="tab-keywords">
+  <h2>关键词管理</h2>
+  <p class="subtitle">机器人会对包含这些词的消息更感兴趣</p>
+  <div class="card"><h3>手动添加</h3>
+    <div class="input-row"><input type="text" id="manualInput" placeholder="输入关键词，回车添加"><button class="btn btn-primary" id="addBtn">添加</button></div>
+    <div class="tags" id="manualTags"></div>
+    <div class="actions"><button class="btn-ghost" id="clearManual">清空手动</button><span style="font-size:12px;color:var(--muted)" id="manualCount"></span></div>
+  </div>
+  <div class="card"><h3>AI生成</h3>
+    <div class="input-row"><select id="personaSelect" class="inp" style="flex:1"><option value="">加载中...</option></select><button class="btn btn-primary" id="genBtn">生成</button></div>
+    <div class="tags" id="aiTags"></div>
+    <div class="actions"><button class="btn-ghost" id="clearAi">清空AI</button><span style="font-size:12px;color:var(--muted)" id="aiCount"></span></div>
+    <div class="status-line" id="genStatus"></div>
+  </div>
+  <div class="card"><h3>测试</h3>
+    <div class="input-row"><input type="text" id="testInput" placeholder="输入测试消息..."><button class="btn btn-primary" id="testBtn">测试</button></div>
+    <div class="status-line" id="testResult"></div>
+  </div>
+</div>
+
+<!-- ====== STATUS ====== -->
+<div class="tab" id="tab-status">
+  <h2>状态面板</h2>
+  <p class="subtitle">各群聊心流状态与发言统计</p>
+  <div class="meta-bar" id="metaBar"></div>
+  <div class="card" style="margin-top:16px">
+    <table><thead><tr><th>群聊</th><th style="width:200px">心流</th><th>上次发言</th><th>窗口</th><th>缓冲</th></tr></thead>
+      <tbody id="groupTable"></tbody>
+    </table>
+    <div class="empty-msg" id="emptyMsg">尚无群聊数据</div>
+  </div>
+  <div class="refresh-row"><button class="btn btn-primary" id="refreshBtn">刷新</button><span class="auto-refresh" id="autoLabel">10s</span></div>
+</div>
+</div>
+
+<script type="module">
+const bridge = window.AstrBotPluginPage;
+await bridge.ready();
+
+// ====== NAVIGATION ======
+document.querySelectorAll('.sidebar a').forEach(a => {
+  a.addEventListener('click', () => {
+    document.querySelectorAll('.sidebar a').forEach(x => x.classList.remove('active'));
+    a.classList.add('active');
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.getElementById('tab-' + a.dataset.tab).classList.add('active');
+    if (a.dataset.tab === 'status') loadStatus();
+  });
+});
+
+// ====== SETTINGS ======
+const form = document.getElementById('settingsForm');
+const saveBtn = document.getElementById('saveBtn');
+const saveStatus = document.getElementById('saveStatus');
+
+const RANGES = [
+  'flow_engine.flow_reply_threshold','flow_engine.flow_decay_rate',
+  'flow_engine.flow_boost_mention','flow_engine.flow_boost_keyword',
+  'flow_engine.flow_boost_question','flow_engine.flow_boost_activity',
+  'flow_engine.flow_decay_on_reply','flow_engine.random_silence_probability',
+  'debounce.min_reply_cooldown','debounce.max_replies_per_window',
+  'accumulation.silence_threshold','accumulation.immediate_flow_threshold'
+];
+RANGES.forEach(n => {
+  const el = form.querySelector(`[name="${n}"]`);
+  if (el) el.addEventListener('input', () => {
+    const o = el.closest('.range-field')?.querySelector('output');
+    if (o) o.textContent = el.value;
+  });
+});
+
+function setVal(path, val) {
+  const el = form.querySelector(`[name="${path}"]`);
+  if (!el) return;
+  if (el.type === 'checkbox') { el.checked = !!val; }
+  else if (el.type === 'range') { el.value = (val != null) ? val : (el.min || 0); el.dispatchEvent(new Event('input')); }
+  else { el.value = (val != null) ? val : ''; }
+}
+async function loadSettings() {
+  try {
+    const data = await bridge.apiGet('settings');
+    for (const [sec, items] of Object.entries(data)) {
+      if (typeof items === 'object' && items && !Array.isArray(items)) {
+        for (const [k, v] of Object.entries(items)) setVal(`${sec}.${k}`, v);
+      }
+    }
+    for (const k of ['reply_style','ai_judge_prompt','ai_reply_prompt']) {
+      if (data[k] !== undefined) setVal(k, data[k]);
+    }
+  } catch (e) { saveStatus.textContent = '加载失败'; saveStatus.className = 'status-line error'; }
+}
+form.onsubmit = async (e) => {
+  e.preventDefault();
+  saveBtn.disabled = true; saveBtn.innerHTML = '<span class="spinner"></span>';
+  const body = {};
+  for (const el of form.elements) {
+    if (!el.name) continue;
+    const parts = el.name.split('.');
+    if (parts.length === 2) {
+      body[parts[0]] = body[parts[0]] || {};
+      body[parts[0]][parts[1]] = el.type === 'checkbox' ? el.checked : (el.type === 'range' || el.type === 'number' ? parseFloat(el.value) || 0 : el.value);
+    } else { body[el.name] = el.type === 'checkbox' ? el.checked : el.value; }
+  }
+  try {
+    const r = await bridge.apiPost('settings/save', body);
+    saveStatus.textContent = r.ok ? '已保存' : '保存失败';
+    saveStatus.className = r.ok ? 'status-line success' : 'status-line error';
+  } catch (e) { saveStatus.textContent = e.message || '失败'; saveStatus.className = 'status-line error'; }
+  saveBtn.disabled = false; saveBtn.innerHTML = '保存设置';
+};
+loadSettings();
+
+// ====== KEYWORDS ======
+const mi = document.getElementById('manualInput'), ab = document.getElementById('addBtn');
+const mt = document.getElementById('manualTags'), at = document.getElementById('aiTags');
+const gb = document.getElementById('genBtn'), gs = document.getElementById('genStatus');
+const cm = document.getElementById('clearManual'), ca = document.getElementById('clearAi');
+const mc = document.getElementById('manualCount'), ac = document.getElementById('aiCount');
+const ps = document.getElementById('personaSelect');
+const ti = document.getElementById('testInput'), tb = document.getElementById('testBtn'), tr = document.getElementById('testResult');
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function attr(s) { return s.replace(/"/g,'&quot;'); }
+function bindDel() {
+  document.querySelectorAll('.tag-del').forEach(b => {
+    b.onclick = async () => { await bridge.apiPost('keywords/remove',{keyword:b.dataset.kw}); loadKw(); };
+  });
+}
+function renderManual(kw) {
+  mc.textContent = kw.length ? `共${kw.length}个` : ''; cm.style.display = kw.length ? '' : 'none';
+  mt.innerHTML = kw.length ? kw.map(k => `<span class="tag manual">${esc(k)}<button class="tag-del" data-kw="${attr(k)}" data-type="manual">×</button></span>`).join('') : '<span class="empty-msg">暂无</span>';
+  bindDel();
+}
+function renderAi(kw) {
+  ac.textContent = kw.length ? `共${kw.length}个` : ''; ca.style.display = kw.length ? '' : 'none';
+  at.innerHTML = kw.length ? kw.map(k => `<span class="tag ai">${esc(k)}<button class="tag-del" data-kw="${attr(k)}" data-type="ai">×</button></span>`).join('') : '<span class="empty-msg">暂无，选择人格后点击生成</span>';
+  bindDel();
+}
+async function loadKw() { const d = await bridge.apiGet('keywords/list'); renderManual(d.manual||[]); renderAi(d.ai||[]); }
+ab.onclick = async () => { const k = mi.value.trim(); if(!k) return; await bridge.apiPost('keywords/add',{keyword:k}); mi.value=''; loadKw(); };
+mi.onkeydown = e => { if(e.key==='Enter') ab.click(); };
+gb.onclick = async () => {
+  gb.disabled = true; gb.innerHTML = '<span class="spinner"></span>'; gs.textContent = ''; gs.className = 'status-line';
+  try { const r = await bridge.apiPost('keywords/generate',{persona_id:ps.value}); gs.textContent = r.ok ? `已生成${r.keywords.length}个` : '失败'; gs.className = r.ok ? 'status-line success' : 'status-line error'; }
+  catch(e) { gs.textContent = e.message||'失败'; gs.className = 'status-line error'; }
+  gb.disabled = false; gb.innerHTML = '生成'; loadKw();
+};
+cm.onclick = async () => { await bridge.apiPost('keywords/clear',{target:'manual'}); loadKw(); };
+ca.onclick = async () => { await bridge.apiPost('keywords/clear',{target:'ai'}); loadKw(); };
+tb.onclick = async () => {
+  const t = ti.value.trim(); if(!t) return;
+  try { const {hits,total_keywords} = await bridge.apiPost('keywords/test',{text:t}); tr.innerHTML = hits.length ? `匹配 ${hits.length}/${total_keywords}: ` + hits.map(k => `<b>${esc(k)}</b>`).join('、') : `无匹配 (${total_keywords}个关键词)`; }
+  catch { tr.textContent = '测试失败'; }
+};
+ti.onkeydown = e => { if(e.key==='Enter') tb.click(); };
+(async () => { try { const p = await bridge.apiGet('keywords/personas'); ps.innerHTML = p.map(x => `<option value="${attr(x.id)}">${esc(x.id)}</option>`).join('')||'<option>默认</option>'; } catch { ps.innerHTML='<option>默认</option>'; } })();
+loadKw();
+
+// ====== STATUS ======
+const tbl = document.getElementById('groupTable'), emp = document.getElementById('emptyMsg');
+const metaBar = document.getElementById('metaBar'), rfb = document.getElementById('refreshBtn'), al = document.getElementById('autoLabel');
+let timer = 10, interval;
+
+function ago(s) { if(s<0) return '未发言'; if(s<60) return s+'s'; if(s<3600) return Math.floor(s/60)+'m'; return Math.floor(s/3600)+'h'; }
+function fc(v) { return v>=70?'high':v>=40?'mid':'low'; }
+async function loadStatus() {
+  try {
+    const d = await bridge.apiGet('status/groups');
+    metaBar.innerHTML = `<span><span class="meta-dot"></span>接管${d.override?'开':'关'}</span><span><span class="meta-dot${d.accum_enabled?'':' off'}"></span>累积${d.accum_enabled?'开':'关'}</span>`;
+    if(!d.groups||!d.groups.length){ tbl.innerHTML=''; emp.style.display='block'; emp.textContent='尚无群聊数据'; return; }
+    emp.style.display='none';
+    tbl.innerHTML = d.groups.map(g => `<tr><td>${g.group_id}</td><td><div class="flow-row"><div class="flow-bar-wrap"><div class="flow-bar-fill ${fc(g.flow)}" style="width:${Math.min(100,g.flow)}%"></div></div><span class="flow-val">${g.flow.toFixed(0)}</span></div></td><td>${ago(g.last_reply_ago)}</td><td>${g.recent_replies}</td><td style="color:${g.pending>0?'var(--terracotta)':''}">${g.pending>0?'● '+g.pending:'—'}</td></tr>`).join('');
+  } catch { emp.style.display='block'; emp.textContent='加载失败'; }
+}
+function startTimer() { timer=10; al.textContent=timer+'s'; clearInterval(interval); interval=setInterval(()=>{ timer--; al.textContent=timer+'s'; if(timer<=0){ loadStatus(); startTimer(); } },1000); }
+rfb.onclick = () => { loadStatus(); startTimer(); };
+</script>
+</body>
+</html>
