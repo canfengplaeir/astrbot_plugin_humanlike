@@ -196,25 +196,6 @@
       }
     }
   },
-  "welcome": {
-    "description": "入群欢迎设置",
-    "type": "object",
-    "hint": "新人入群时自动发送欢迎消息",
-    "items": {
-      "enabled": {
-        "description": "启用入群欢迎",
-        "type": "bool",
-        "default": false,
-        "hint": "开启后，新人入群时机器人会自动发送欢迎消息"
-      },
-      "message": {
-        "description": "欢迎消息模板",
-        "type": "string",
-        "default": "欢迎 {user_name} 加入本群！",
-        "hint": "支持变量: {user_name} 新人昵称, {group_name} 群名"
-      }
-    }
-  },
   "interest_keywords": {
     "description": "感兴趣的关键词",
     "type": "list",

@@ -155,11 +155,6 @@ td:nth-child(5) { font-weight: 600; }
       <div class="range-field"><label>立即回复阈值 <output></output></label><input type="range" name="accumulation.immediate_flow_threshold" min="50" max="100" step="5"></div>
       <div class="field"><label>缓冲上限(条)</label><input type="number" name="accumulation.max_buffer_size" min="5" max="50" class="inp"></div>
     </div>
-    <div class="card"><h3>入群欢迎</h3>
-      <div class="field"><label><span>启用欢迎</span><input type="checkbox" name="welcome.enabled"></label></div>
-      <div class="field"><label>欢迎消息模板</label><input type="text" name="welcome.message" class="inp" placeholder="欢迎 {user_name} 加入本群！"></div>
-      <span class="hint">变量: &#123;user_name&#125; 新人昵称, &#123;group_name&#125; 群名</span>
-    </div>
     <div class="actions"><button type="submit" class="btn btn-primary" id="saveBtn">保存设置</button><span class="status-line" id="saveStatus"></span></div>
   </form>
 </div>

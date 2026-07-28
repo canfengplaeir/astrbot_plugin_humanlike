@@ -138,43 +138,6 @@ class HumanLikePlugin(Star):
     # 主入口
     # ============================================================
 
-    @filter.event_message_type(filter.EventMessageType.ALL)
-    async def _on_member_join(self, event: AstrMessageEvent):
-        """检测新人入群并发送欢迎消息"""
-        wc = self.config.get("welcome", {})
-        if not wc.get("enabled", False) or not event.message_obj.group_id:
-            return
-
-        msg_type = str(event.message_obj.type)
-        msg_text = event.message_str or ""
-        sender_name = (event.get_sender_name() or "").strip()
-
-        is_join_event = (
-            "increase" in msg_type.lower()
-            or "member_add" in msg_type.lower()
-            or "group_member" in msg_type.lower()
-        )
-        is_qq_welcome = (
-            msg_text.startswith("<@")
-            and "欢迎" in msg_text
-            and "Q群管家" in sender_name
-        )
-
-        if not is_join_event and not is_qq_welcome:
-            return
-
-        if is_qq_welcome:
-            user_name = msg_text.split(">", 1)[1].strip() if ">" in msg_text else "新成员"
-            user_name = user_name[:20]
-        else:
-            user_name = event.get_sender_name() or "新成员"
-        group_name = getattr(event.message_obj, 'group_name', '') or ''
-        template = wc.get("message", "欢迎 {user_name} 加入本群！")
-        welcome = template.replace("{user_name}", user_name).replace("{group_name}", group_name)
-        yield event.plain_result(welcome)
-        event.stop_event()
-        logger.info(f"[群:{event.message_obj.group_id}] 欢迎新人: {user_name}")
-
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
     async def on_group_message(self, event: AstrMessageEvent):
         group_id = event.message_obj.group_id
@@ -751,7 +714,7 @@ class HumanLikePlugin(Star):
         body = await request.json(default={})
         changed = False
 
-        for section in ["reply_engine", "flow_engine", "debounce", "accumulation", "welcome"]:
+        for section in ["reply_engine", "flow_engine", "debounce", "accumulation"]:
             if section in body and isinstance(body[section], dict):
                 self.config[section] = body[section]
                 changed = True
