@@ -138,11 +138,11 @@ class HumanLikePlugin(Star):
     # 主入口
     # ============================================================
 
-    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
+    @filter.event_message_type(filter.EventMessageType.ALL)
     async def _on_member_join(self, event: AstrMessageEvent):
         """检测新人入群并发送欢迎消息"""
         wc = self.config.get("welcome", {})
-        if not wc.get("enabled", False):
+        if not wc.get("enabled", False) or not event.message_obj.group_id:
             return
         msg_type = str(event.message_obj.type)
         if "increase" not in msg_type.lower() and "member_join" not in msg_type.lower() and "join" not in msg_type.lower():
