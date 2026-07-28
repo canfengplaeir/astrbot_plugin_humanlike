@@ -151,7 +151,8 @@ class HumanLikePlugin(Star):
 
         is_join_event = (
             "increase" in msg_type.lower()
-            or "member_join" in msg_type.lower()
+            or "member_add" in msg_type.lower()
+            or "group_member" in msg_type.lower()
         )
         is_qq_welcome = (
             msg_text.startswith("<@")
