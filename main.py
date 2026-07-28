@@ -144,10 +144,29 @@ class HumanLikePlugin(Star):
         wc = self.config.get("welcome", {})
         if not wc.get("enabled", False) or not event.message_obj.group_id:
             return
+
         msg_type = str(event.message_obj.type)
-        if "increase" not in msg_type.lower() and "member_join" not in msg_type.lower() and "join" not in msg_type.lower():
+        msg_text = event.message_str or ""
+        sender_name = (event.get_sender_name() or "").strip()
+
+        is_join_event = (
+            "increase" in msg_type.lower()
+            or "member_join" in msg_type.lower()
+        )
+        is_qq_welcome = (
+            msg_text.startswith("<@")
+            and "欢迎" in msg_text
+            and "Q群管家" in sender_name
+        )
+
+        if not is_join_event and not is_qq_welcome:
             return
-        user_name = event.get_sender_name() or "新成员"
+
+        if is_qq_welcome:
+            user_name = msg_text.split(">", 1)[1].strip() if ">" in msg_text else "新成员"
+            user_name = user_name[:20]
+        else:
+            user_name = event.get_sender_name() or "新成员"
         group_name = getattr(event.message_obj, 'group_name', '') or ''
         template = wc.get("message", "欢迎 {user_name} 加入本群！")
         welcome = template.replace("{user_name}", user_name).replace("{group_name}", group_name)
