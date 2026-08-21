@@ -47,10 +47,16 @@ class FlowEngine:
         return len(self._ai_keywords) > 0
 
     def _all_keywords(self) -> list:
+        """当前生效的全部关键词。
+
+        注意：AI 生成的关键词只有在 use_ai_keywords 开启时才参与匹配，
+        否则「AI关键词」开关关闭后旧关键词仍生效，与用户预期不符。
+        """
         merged = list(self._interest_keywords)
-        for kw in self._ai_keywords:
-            if kw not in merged:
-                merged.append(kw)
+        if self._reply_cfg.get("use_ai_keywords", False):
+            for kw in self._ai_keywords:
+                if kw not in merged:
+                    merged.append(kw)
         return merged
 
     @property

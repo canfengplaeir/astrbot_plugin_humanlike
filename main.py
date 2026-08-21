@@ -111,7 +111,8 @@ class HumanLikePlugin(Star):
                 logger.warning("无人格设定，无法生成关键词")
                 return []
             logger.info("开始调用 LLM 生成关键词...")
-            count = int(self.config.get("reply_engine", {}).get("keyword_count", 10))
+            count = max(3, min(30, int(self.config.get(
+                "reply_engine", {}).get("keyword_count", 10))))
             keywords = await self.ai.generate_keywords(
                 event, persona_prompt, persona_name, count)
             if keywords:
@@ -176,6 +177,14 @@ class HumanLikePlugin(Star):
         state = await self._get_state(group_id)
         # 被 @ 提及 → 必定回复：跳过 AI 判断与防抖
         mentioned = is_mentioned(event)
+        msg_text = event.message_str or ""
+
+        if not mentioned and not msg_text.strip():
+            # 纯图片/表情/语音等无文本消息：不参与对话、不触发 AI
+            logger.debug(f"[群:{group_id}] 无文本消息，忽略")
+            self._stop_if_override(event)
+            return
+
         persona_prompt, persona_name = "", ""
         if self.persona.enabled:
             persona_prompt = await self.persona.system_prompt(event)
@@ -187,7 +196,6 @@ class HumanLikePlugin(Star):
                 asyncio.ensure_future(self._gen_and_save_keywords(event))
 
         now = time.time()
-        msg_text = event.message_str or ""
 
         async with state.lock:
             # 记录会话来源（主动发言发送消息需要）与群消息时间（活跃度统计需要）
@@ -232,6 +240,14 @@ class HumanLikePlugin(Star):
                 event, state.flow_level, persona_name
             )
 
+            if immediate and state.reply_in_progress:
+                # 已有回复正在生成：本条转为累积等待（或直接忽略），
+                # 防止同群两条几乎同时的立即触发消息并发生成两条回复
+                if not self.accum.enabled:
+                    self._stop_if_override(event)
+                    return
+                immediate = False
+
             if immediate:
                 self.accum.cancel_timer(state)
                 if not state.pipeline_running:
@@ -251,6 +267,8 @@ class HumanLikePlugin(Star):
                     self._stop_if_override(event)
                     return
 
+                # 防抖通过后才占位，防止防抖失败 return 时标志泄漏
+                state.reply_in_progress = True
                 flow_snap = state.flow_level
                 ctx_snap = list(state.conversation_context[-8:])
 
@@ -296,38 +314,43 @@ class HumanLikePlugin(Star):
 
     async def _run_immediate(self, event, state, flow_snap, ctx_snap,
                              persona_prompt, persona_name, mentioned=False):
-        if mentioned:
-            logger.info("被@提及 → 必定回复（跳过AI判断）")
-        else:
-            logger.info(f"立即处理 | 心流={flow_snap:.0f} → AI判断...")
-            if not await self.ai.judge(event, flow_snap, ctx_snap,
-                                        persona_prompt, persona_name):
-                logger.info("AI判断 → 沉默")
+        try:
+            if mentioned:
+                logger.info("被@提及 → 必定回复（跳过AI判断）")
+            else:
+                logger.info(f"立即处理 | 心流={flow_snap:.0f} → AI判断...")
+                if not await self.ai.judge(event, flow_snap, ctx_snap,
+                                            persona_prompt, persona_name):
+                    logger.info("AI判断 → 沉默")
+                    self._stop_if_override(event)
+                    return
+
+            logger.info("AI判断 → 发言 → 生成回复...")
+            reply = await self.ai.reply(event, flow_snap, ctx_snap,
+                                         persona_prompt, persona_name)
+            if not reply:
+                logger.warning("回复生成失败（空内容）")
                 self._stop_if_override(event)
                 return
 
-        logger.info("AI判断 → 发言 → 生成回复...")
-        reply = await self.ai.reply(event, flow_snap, ctx_snap,
-                                     persona_prompt, persona_name)
-        if not reply:
-            logger.warning("回复生成失败（空内容）")
+            logger.info(f"回复完毕 ({len(reply)}字) | 预览={reply[:40]}")
+
+            await event.send(event.plain_result(reply))
+
+            async with state.lock:
+                self._record_reply(state, now=time.time(),
+                                   persona_name=persona_name)
+                state.append_context(
+                    persona_name or self.config.get("reply_engine", {}).get("bot_name", "bot"),
+                    reply,
+                )
+
+            await self._write_history(event, reply)
             self._stop_if_override(event)
-            return
-
-        logger.info(f"回复完毕 ({len(reply)}字) | 预览={reply[:40]}")
-
-        await event.send(event.plain_result(reply))
-
-        async with state.lock:
-            self._record_reply(state, now=time.time(),
-                               persona_name=persona_name)
-            state.append_context(
-                persona_name or self.config.get("reply_engine", {}).get("bot_name", "bot"),
-                reply,
-            )
-
-        await self._write_history(event, reply)
-        self._stop_if_override(event)
+        finally:
+            # 无论成功/沉默/异常，都释放立即回复互斥标志
+            async with state.lock:
+                state.reply_in_progress = False
 
     # ============================================================
     # 累积批处理
@@ -352,6 +375,11 @@ class HumanLikePlugin(Star):
         # 导致同一批消息被处理两次（重复回复）
         async with state.lock:
             if state.pipeline_running or not state.pending_messages:
+                return
+            if state.reply_in_progress:
+                # 立即回复正在生成：批处理延迟，避免同一时刻两条回复
+                logger.debug(f"[群:{group_id}] 立即回复进行中，批处理延迟20s")
+                await self._start_retry_timer(group_id, state)
                 return
             state.pipeline_running = True
             pending = list(state.pending_messages)
@@ -507,15 +535,28 @@ class HumanLikePlugin(Star):
             if not text:
                 return
 
+            # 发送前复查：AI 生成话题的这几秒内群若已恢复活跃，取消发言
+            async with state.lock:
+                if time.time() - state.last_msg_time < idle_min * 60:
+                    logger.debug(f"[群:{gid}] 主动发言取消：生成期间群已活跃")
+                    return
+
             try:
                 from astrbot.core.message.message_event_result import MessageChain
                 ok = await self.context.send_message(
                     session=umo, message_chain=MessageChain().message(text))
             except Exception as e:
                 logger.warning(f"[群:{gid}] 主动发言发送失败: {e}")
-                return
+                ok = False
             if not ok:
                 logger.warning(f"[群:{gid}] 主动发言发送失败（平台不支持）")
+                # 失败也记录时间戳进入冷却，避免每轮扫描（60s）重复尝试
+                async with state.lock:
+                    state.proactive_timestamps.append(time.time())
+                    state.proactive_timestamps = [
+                        t for t in state.proactive_timestamps
+                        if time.time() - t < 86400
+                    ]
                 return
 
             async with state.lock:
@@ -594,6 +635,7 @@ class HumanLikePlugin(Star):
             pending = len(s.pending_messages)
             proactive_on = self.config.get("proactive", {}).get("enabled", False)
             proactive_cnt = len([t for t in s.proactive_timestamps if now - t < 86400])
+            max_win = self.config.get("debounce", {}).get("max_replies_per_window", 12)
 
         if last > 0:
             ago = int(now - last)
@@ -605,7 +647,7 @@ class HumanLikePlugin(Star):
         lines = [
             f"🤖 状态",
             f"心流 [{bar}] {flow:.0f}/100",
-            f"上次: {ago_s} | 窗口: {recent}/{self.config.get('debounce', {}).get('max_replies_per_window', 6)}",
+            f"上次: {ago_s} | 窗口: {recent}/{max_win}",
             f"缓冲: {pending}条",
         ]
         if proactive_on:
@@ -776,7 +818,8 @@ class HumanLikePlugin(Star):
             if not persona_prompt:
                 return error_response("无人格设定，请先在人格管理中创建人格")
 
-            count = int(self.config.get("reply_engine", {}).get("keyword_count", 10))
+            count = max(3, min(30, int(self.config.get(
+                "reply_engine", {}).get("keyword_count", 10))))
             keywords = await self.ai.generate_keywords(
                 None, persona_prompt, persona_name, count, umo=None)
             if not keywords:

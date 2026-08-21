@@ -30,6 +30,9 @@ class GroupState:
     unified_msg_origin: str = ""
     # 批处理管道是否正在运行，防止并发触发导致重复回复
     pipeline_running: bool = False
+    # 立即回复是否正在生成（AI 调用期间），防止同群两条几乎同时的
+    # 立即触发消息并发生成两条回复
+    reply_in_progress: bool = False
     # 主动发言时间戳列表，用于冷却与每日上限统计
     proactive_timestamps: list[float] = field(default_factory=list)
 
