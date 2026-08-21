@@ -4,6 +4,8 @@ import time
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api import logger
 
+from ..engine.flow import is_mentioned
+
 
 class AIClient:
     """AI 调用客户端：封装 LLM 判断与回复生成。"""
@@ -87,6 +89,22 @@ class AIClient:
     def _flow_threshold(self) -> float:
         return float(self._cfg.get("flow_engine", {}).get(
             "flow_reply_threshold", 20))
+
+    @staticmethod
+    def _mention_note(event: AstrMessageEvent) -> str:
+        """被 @ 时的提示语，用于让 LLM 明确感知「直接点名」这一事实。"""
+        if is_mentioned(event):
+            return "【注意】你被 @ 了，原则上必须回复。\n\n"
+        return ""
+
+    @staticmethod
+    def _latest_line(event: AstrMessageEvent) -> str:
+        """构造「最新消息」描述行；单纯 @（无文字）时也能表达清楚。"""
+        sender = event.get_sender_name() or "某人"
+        text = (event.message_str or "").strip()
+        if is_mentioned(event):
+            return f"{sender} @了你" + (f"，说：「{text}」" if text else "")
+        return f"{sender} 说：「{text}」"
 
     # ── 判断结果解析 ─────────────────────────────────────────
 
@@ -173,8 +191,9 @@ class AIClient:
                 f"{self._persona_block(persona_system_prompt, persona_name, short=True)}"
                 f"{self._judge_instructions()}\n\n"
                 f"心流值：{flow_level:.0f}/100\n\n"
+                f"{self._mention_note(event)}"
                 f"最近群聊：\n{ctx or '（暂无）'}\n\n"
-                f"最新消息 — {event.get_sender_name() or '某人'}：{event.message_str}\n\n"
+                f"最新消息 — {self._latest_line(event)}\n\n"
                 f"请只回复「发言」或「沉默」："
             )
             pid = await self._provider_id(event, for_judge=True)
@@ -215,7 +234,7 @@ class AIClient:
                 f"{self._style_line(flow_level, persona_system_prompt)}"
                 f"心流值：{flow_level:.0f}/100\n\n"
                 f"最近群聊：\n{ctx}\n\n"
-                f"{event.get_sender_name() or '某人'} 说：「{event.message_str}」\n\n"
+                f"{self._latest_line(event)}\n\n"
                 f"回复："
             )
             pid = await self._provider_id(event)
@@ -251,6 +270,7 @@ class AIClient:
                 f"{self._persona_block(persona_system_prompt, persona_name, short=True)}"
                 f"{self._judge_instructions()}\n\n"
                 f"心流值：{flow_level:.0f}/100\n"
+                f"{self._mention_note(event)}"
                 f"【注意】以下是一段时间内累积的消息，请综合判断是否该参与。\n\n"
                 f"群聊记录：\n{ctx or '（暂无）'}\n\n"
                 f"请只回复「发言」或「沉默」："
@@ -292,6 +312,7 @@ class AIClient:
                 f"【行为指令】\n{self._reply_instructions()}\n\n"
                 f"{self._style_line(flow_level, persona_system_prompt)}"
                 f"心流值：{flow_level:.0f}/100\n"
+                f"{self._mention_note(event)}"
                 f"【注意】以下是最近一段时间的群聊记录，请综合上下文后自然地参与讨论。\n\n"
                 f"群聊记录：\n{ctx}\n\n"
                 f"回复："

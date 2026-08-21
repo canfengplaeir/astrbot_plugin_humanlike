@@ -14,6 +14,7 @@ from astrbot.core.agent.message import (
 )
 
 from .engine import GroupState, FlowEngine, DebounceChecker, AccumulationManager
+from .engine.flow import is_mentioned
 from .engine.state import MAX_CONTEXT
 from .ai import PersonaBridge, AIClient
 
@@ -173,6 +174,8 @@ class HumanLikePlugin(Star):
         )
 
         state = await self._get_state(group_id)
+        # 被 @ 提及 → 必定回复：跳过 AI 判断与防抖
+        mentioned = is_mentioned(event)
         persona_prompt, persona_name = "", ""
         if self.persona.enabled:
             persona_prompt = await self.persona.system_prompt(event)
@@ -243,7 +246,7 @@ class HumanLikePlugin(Star):
                             state.conversation_context[-MAX_CONTEXT:])
                 # 若管道正在运行，缓冲消息由管道负责写入上下文，避免重复
                 state.append_context(event.get_sender_name() or "未知", msg_text)
-                if not self.debounce.check(state, now):
+                if not mentioned and not self.debounce.check(state, now):
                     logger.info(f"[群:{group_id}] 防抖拦截（立即触发但频率受限）")
                     self._stop_if_override(event)
                     return
@@ -272,7 +275,7 @@ class HumanLikePlugin(Star):
                 else:
                     state.append_context(event.get_sender_name() or "未知",
                                          msg_text)
-                    if not self.debounce.check(state, now):
+                    if not mentioned and not self.debounce.check(state, now):
                         logger.info(f"[群:{group_id}] 防抖拦截")
                         self._stop_if_override(event)
                         return
@@ -285,20 +288,23 @@ class HumanLikePlugin(Star):
                     return
 
         await self._run_immediate(event, state, flow_snap, ctx_snap,
-                                  persona_prompt, persona_name)
+                                  persona_prompt, persona_name, mentioned)
 
     # ============================================================
     # 立即处理
     # ============================================================
 
     async def _run_immediate(self, event, state, flow_snap, ctx_snap,
-                             persona_prompt, persona_name):
-        logger.info(f"立即处理 | 心流={flow_snap:.0f} → AI判断...")
-        if not await self.ai.judge(event, flow_snap, ctx_snap,
-                                    persona_prompt, persona_name):
-            logger.info("AI判断 → 沉默")
-            self._stop_if_override(event)
-            return
+                             persona_prompt, persona_name, mentioned=False):
+        if mentioned:
+            logger.info("被@提及 → 必定回复（跳过AI判断）")
+        else:
+            logger.info(f"立即处理 | 心流={flow_snap:.0f} → AI判断...")
+            if not await self.ai.judge(event, flow_snap, ctx_snap,
+                                        persona_prompt, persona_name):
+                logger.info("AI判断 → 沉默")
+                self._stop_if_override(event)
+                return
 
         logger.info("AI判断 → 发言 → 生成回复...")
         reply = await self.ai.reply(event, flow_snap, ctx_snap,
@@ -351,24 +357,33 @@ class HumanLikePlugin(Star):
             pending = list(state.pending_messages)
 
         try:
+            last_event = pending[-1].get("event") if pending else None
+            if not last_event:
+                return
+            # 批处理中若最后一条是 @ 提及（如防抖重试期间积压的 @），同样必定回复
+            mentioned = is_mentioned(last_event)
+
             logger.info(
                 f"[群:{group_id}] 批处理: {len(pending)}条 "
                 f"| {' → '.join(m['text'][:20] for m in pending[-3:])}"
             )
 
             now = time.time()
-            async with state.lock:
-                debounce_ok = self.debounce.check(state, now)
-                if not debounce_ok:
-                    state.retry_count += 1
-                    if state.retry_count > 2:
-                        logger.info(f"[群:{group_id}] 批处理: 重试{state.retry_count}次，跳过防抖直接交AI判断")
+            if mentioned:
+                state.retry_count = 0
+            else:
+                async with state.lock:
+                    debounce_ok = self.debounce.check(state, now)
+                    if not debounce_ok:
+                        state.retry_count += 1
+                        if state.retry_count > 2:
+                            logger.info(f"[群:{group_id}] 批处理: 重试{state.retry_count}次，跳过防抖直接交AI判断")
+                        else:
+                            logger.info(f"[群:{group_id}] 批处理: 防抖拦截({state.retry_count}/3)，20s后重试")
+                            await self._start_retry_timer(group_id, state)
+                            return
                     else:
-                        logger.info(f"[群:{group_id}] 批处理: 防抖拦截({state.retry_count}/3)，20s后重试")
-                        await self._start_retry_timer(group_id, state)
-                        return
-                else:
-                    state.retry_count = 0
+                        state.retry_count = 0
 
             async with state.lock:
                 # 只移除本次已拷贝的消息：处理期间新缓冲的消息不能丢
@@ -393,8 +408,10 @@ class HumanLikePlugin(Star):
             ctx_list = list(state.conversation_context[-10:])
             flow_snap = state.flow_level
 
-            if not await self.ai.judge_batch(last_event, flow_snap, ctx_list,
-                                              persona_prompt, persona_name):
+            if mentioned:
+                logger.info(f"[群:{group_id}] 批处理: 被@提及 → 必定回复（跳过AI判断）")
+            elif not await self.ai.judge_batch(last_event, flow_snap, ctx_list,
+                                                persona_prompt, persona_name):
                 logger.info(f"[群:{group_id}] 批处理: AI判断→沉默")
                 return
 

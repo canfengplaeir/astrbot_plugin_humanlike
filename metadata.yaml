@@ -12,7 +12,7 @@ desc: |
   
   机器人不再是每条消息都回复的话痨，而是像人类一样有选择地参与对话。
 author: hdmm4
-version: 1.1.0
+version: 1.1.1
 repo: https://github.com/canfengplaeir/astrbot_plugin_humanlike
 astrbot_version: ">=4.16"
 support_platforms:
