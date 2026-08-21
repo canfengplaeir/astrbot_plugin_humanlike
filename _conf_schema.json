@@ -264,6 +264,80 @@
       }
     }
   },
+  "group_manage": {
+    "description": "群管理(入群审核)",
+    "type": "object",
+    "hint": "新人入群自动审核、防爆破、入群欢迎（v1.2.0 新增；踢人能力依赖 OneBot 系平台）",
+    "items": {
+      "enabled": {
+        "description": "启用群管理",
+        "type": "bool",
+        "default": false,
+        "hint": "总开关。开启后监听入群事件并执行审核"
+      },
+      "audit_mode": {
+        "description": "审核模式",
+        "type": "str",
+        "default": "off",
+        "options": ["off", "blacklist", "strict"],
+        "hint": "off=不踢人；blacklist=仅黑名单拒绝，其余放行；strict=仅白名单放行，其余拒绝"
+      },
+      "allow_list": {
+        "description": "白名单",
+        "type": "list",
+        "default": [],
+        "hint": "strict 模式下放行的成员。支持 QQ 号精确匹配或昵称包含匹配，每行一个"
+      },
+      "block_list": {
+        "description": "黑名单",
+        "type": "list",
+        "default": [],
+        "hint": "入群即踢的成员。支持 QQ 号精确匹配或昵称包含匹配，每行一个"
+      },
+      "welcome_enabled": {
+        "description": "入群欢迎",
+        "type": "bool",
+        "default": false,
+        "hint": "审核通过后发送欢迎消息"
+      },
+      "welcome_message": {
+        "description": "欢迎消息模板",
+        "type": "str",
+        "default": "欢迎 {user_name} 加入本群！",
+        "hint": "变量：{user_name} 新人昵称，{group_name} 群名"
+      },
+      "kick_notice": {
+        "description": "踢人通知",
+        "type": "bool",
+        "default": true,
+        "hint": "踢出成员后是否在群里发送提示"
+      },
+      "kick_message": {
+        "description": "踢人提示模板",
+        "type": "str",
+        "default": "已拒绝 {user_name} 入群。",
+        "hint": "变量：{user_name} 被拒绝成员昵称"
+      },
+      "anti_raid_enabled": {
+        "description": "防爆破",
+        "type": "bool",
+        "default": true,
+        "hint": "短时间内大量入群视为机器人爆破，全部拒绝"
+      },
+      "anti_raid_count": {
+        "description": "爆破阈值(人)",
+        "type": "int",
+        "default": 5,
+        "hint": "统计窗口内入群人数达到该值即触发防爆破"
+      },
+      "anti_raid_window": {
+        "description": "统计窗口(秒)",
+        "type": "int",
+        "default": 60,
+        "hint": "防爆破统计入群人数的时间窗口"
+      }
+    }
+  },
   "interest_keywords": {
     "description": "感兴趣的关键词",
     "type": "list",

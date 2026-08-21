@@ -175,6 +175,21 @@ td:nth-child(5) { font-weight: 600; }
       <div class="field"><label>AI判断提示词</label><textarea name="ai_judge_prompt" rows="6" class="inp" style="font-family:inherit;resize:vertical"></textarea></div>
       <div class="field"><label>AI回复提示词</label><textarea name="ai_reply_prompt" rows="6" class="inp" style="font-family:inherit;resize:vertical"></textarea></div>
     </div>
+    <div class="card"><h3>群管理 <span style="font-size:12px;color:var(--muted)">v1.2</span></h3>
+      <p class="hint">新人入群自动审核 + 防爆破 + 入群欢迎（踢人依赖 OneBot 系平台，默认关闭）</p>
+      <div class="field"><label><span>启用群管理</span><input type="checkbox" name="group_manage.enabled"></label></div>
+      <div class="field"><label>审核模式</label><select name="group_manage.audit_mode" class="inp"><option value="off">关闭审核（不踢人）</option><option value="blacklist">黑名单拒绝</option><option value="strict">仅白名单放行</option></select></div>
+      <div class="field"><label>白名单（QQ号或昵称，每行一个）</label><textarea name="group_manage.allow_list" rows="3" class="inp" style="font-family:inherit;resize:vertical"></textarea></div>
+      <div class="field"><label>黑名单（QQ号或昵称，每行一个）</label><textarea name="group_manage.block_list" rows="3" class="inp" style="font-family:inherit;resize:vertical"></textarea></div>
+      <div class="field"><label><span>入群欢迎</span><input type="checkbox" name="group_manage.welcome_enabled"></label></div>
+      <div class="field"><label>欢迎模板</label><input type="text" name="group_manage.welcome_message" class="inp" placeholder="欢迎 {user_name} 加入本群！"></div>
+      <div class="field"><label><span>踢人通知</span><input type="checkbox" name="group_manage.kick_notice"></label></div>
+      <div class="field"><label>踢人提示模板</label><input type="text" name="group_manage.kick_message" class="inp" placeholder="已拒绝 {user_name} 入群。"></div>
+      <div class="field"><label><span>防爆破</span><input type="checkbox" name="group_manage.anti_raid_enabled"></label></div>
+      <div class="field"><label>爆破阈值(人)</label><input type="number" name="group_manage.anti_raid_count" min="2" max="50" class="inp"></div>
+      <div class="field"><label>统计窗口(秒)</label><input type="number" name="group_manage.anti_raid_window" min="10" max="600" class="inp"></div>
+      <span class="hint">变量: &#123;user_name&#125; 新人昵称, &#123;group_name&#125; 群名</span>
+    </div>
     <div class="actions"><button type="submit" class="btn btn-primary" id="saveBtn">保存设置</button><span class="status-line" id="saveStatus"></span></div>
   </form>
 </div>
@@ -270,6 +285,11 @@ async function loadSettings() {
     }
     for (const k of ['reply_style','ai_judge_prompt','ai_reply_prompt']) {
       if (data[k] !== undefined) setVal(k, data[k]);
+    }
+    // 名单类字段：列表转多行文本
+    const gm = data.group_manage || {};
+    for (const k of ['allow_list','block_list']) {
+      if (Array.isArray(gm[k])) setVal(`group_manage.${k}`, gm[k].join('\n'));
     }
   } catch (e) { saveStatus.textContent = '加载失败'; saveStatus.className = 'status-line error'; }
 }

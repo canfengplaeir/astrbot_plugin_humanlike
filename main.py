@@ -43,6 +43,8 @@ class HumanLikePlugin(Star):
         self._keywords_loaded = False
         self._keywords_generating = False
         self._proactive_task = None
+        # 入群时间记录（防爆破统计）：group_id -> [(时间戳, 用户ID)]
+        self._join_records: Dict[str, list[tuple[float, str]]] = {}
 
         context.register_web_api(
             f"/{PLUGIN_NAME}/keywords/list", self._api_kw_list, ["GET"], "关键词列表")
@@ -86,6 +88,7 @@ class HumanLikePlugin(Star):
         for s in self._states.values():
             self.accum.cancel_timer(s)
         self._states.clear()
+        self._join_records.clear()
 
     async def _init_keywords(self):
         if not self.config.get("reply_engine", {}).get("use_ai_keywords", False):
@@ -174,6 +177,175 @@ class HumanLikePlugin(Star):
     # ============================================================
     # 主入口
     # ============================================================
+
+    @staticmethod
+    def _raw_get(raw, key: str, default=None):
+        """从原始事件对象取字段（兼容 dict / Mapping / pydantic 模型）。"""
+        if raw is None:
+            return default
+        getter = getattr(raw, "get", None)
+        if callable(getter):
+            try:
+                return getter(key, default)
+            except Exception:
+                pass
+        return getattr(raw, key, default)
+
+    def _detect_join_event(self, event: AstrMessageEvent) -> tuple[bool, str]:
+        """判断消息事件是否为「新人入群」，返回 (是否入群, 新成员ID)。
+
+        OneBot 系平台（aiocqhttp 等）：适配器把 notice 事件转为消息事件，
+        原始数据保留在 message_obj.raw_message（post_type=notice,
+        notice_type=group_increase）。其他平台回退到消息类型/文本特征。
+        """
+        raw = getattr(event.message_obj, "raw_message", None)
+        post = str(self._raw_get(raw, "post_type", "") or "")
+        ntype = str(self._raw_get(raw, "notice_type", "") or "")
+        if post == "notice" and ntype == "group_increase":
+            uid = str(self._raw_get(raw, "user_id", "") or "")
+            return True, uid or str(event.get_sender_id())
+
+        mtype = str(getattr(event.message_obj, "type", ""))
+        msg_str = (event.message_str or "").lower()
+        if any(k in mtype.lower() for k in
+               ("increase", "member_add", "member_join", "group_member")):
+            return True, str(event.get_sender_id())
+        if any(k in msg_str for k in ("入群", "加入群聊", "member join",
+                                      "joined the group")):
+            return True, str(event.get_sender_id())
+        return False, ""
+
+    @staticmethod
+    def _match_member(user_id: str, user_name: str, items: list) -> bool:
+        """成员是否命中名单：QQ 号精确匹配，或昵称包含匹配。"""
+        uid = user_id.strip()
+        name = user_name.strip()
+        for item in items or []:
+            it = str(item).strip()
+            if not it:
+                continue
+            if it == uid:
+                return True
+            if name and it.lower() in name.lower():
+                return True
+        return False
+
+    def _record_join(self, group_id: str, ts: float, user_id: str):
+        records = self._join_records.setdefault(group_id, [])
+        records.append((ts, user_id))
+        self._join_records[group_id] = [r for r in records if ts - r[0] <= 600][-200:]
+
+    async def _kick_member(self, event: AstrMessageEvent,
+                           group_id: str, user_id: str) -> bool:
+        """踢出群成员（仅支持 OneBot 系平台，如 aiocqhttp）。"""
+        try:
+            platform = self.context.get_platform_inst(event.get_platform_id())
+            bot = platform.get_client() if platform else None
+            if bot is None or not hasattr(bot, "call_action"):
+                logger.warning(f"[群:{group_id}] 当前平台不支持踢人操作")
+                return False
+            await bot.call_action(
+                "set_group_kick",
+                group_id=int(group_id),
+                user_id=int(user_id),
+                reject_add_request=False,
+            )
+            return True
+        except Exception as e:
+            logger.warning(f"[群:{group_id}] 踢人失败: {e}")
+            return False
+
+    async def _send_group(self, event: AstrMessageEvent, text: str):
+        try:
+            from astrbot.core.message.message_event_result import MessageChain
+            await self.context.send_message(
+                session=event.unified_msg_origin,
+                message_chain=MessageChain().message(text),
+            )
+        except Exception as e:
+            logger.debug(f"群消息发送失败: {e}")
+
+    async def _reject_member(self, event: AstrMessageEvent, group_id: str,
+                             user_id: str, user_name: str, reason: str):
+        """审核不通过：踢出 + 可选通知。"""
+        kicked = await self._kick_member(event, group_id, user_id)
+        gm = self.config.get("group_manage", {}) or {}
+        if kicked and gm.get("kick_notice", True):
+            template = gm.get("kick_message", "已拒绝 {user_name} 入群。")
+            text = str(template).replace("{user_name}", user_name)
+            await self._send_group(event, text)
+        event.stop_event()
+        logger.info(
+            f"[群:{group_id}] 已拒绝 {user_name}({user_id}) 入群: {reason}"
+            f"（踢出={'成功' if kicked else '失败/平台不支持'}）"
+        )
+
+    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
+    async def on_group_member_join(self, event: AstrMessageEvent):
+        """入群事件处理：自动审核 + 防爆破 + 欢迎。
+
+        与主消息处理器共存：入群事件由本方法处理，
+        主处理器会因「无文本消息」忽略它。
+        """
+        gm = self.config.get("group_manage", {}) or {}
+        if not gm.get("enabled", False):
+            return
+        group_id = event.message_obj.group_id
+        if not group_id:
+            return
+        is_join, user_id = self._detect_join_event(event)
+        if not is_join:
+            return
+
+        user_name = event.get_sender_name() or "新成员"
+        now = time.time()
+        self._record_join(group_id, now, user_id)
+        logger.info(f"[群:{group_id}] 检测到入群: {user_name}({user_id})")
+
+        # 防爆破：窗口内入群人数达到阈值 → 窗口内成员全部拒绝（含已放行的）
+        if gm.get("anti_raid_enabled", True):
+            window = float(gm.get("anti_raid_window", 60))
+            records = [r for r in self._join_records.get(group_id, [])
+                       if now - r[0] < window]
+            threshold = int(gm.get("anti_raid_count", 5))
+            if len(records) >= threshold:
+                logger.warning(
+                    f"[群:{group_id}] 防爆破触发: {window:.0f}s内{len(records)}人入群"
+                )
+                # 追踢窗口内已放行的爆破成员（幂等，重复踢无副作用）
+                for ts, uid in records:
+                    if uid != user_id:
+                        await self._kick_member(event, group_id, uid)
+                await self._reject_member(event, group_id, user_id,
+                                          user_name, "防爆破")
+                return
+
+        # 名单审核
+        mode = str(gm.get("audit_mode", "off"))
+        allow_list = gm.get("allow_list", []) or []
+        block_list = gm.get("block_list", []) or []
+        blocked = self._match_member(user_id, user_name, block_list)
+        allowed = self._match_member(user_id, user_name, allow_list)
+
+        if mode == "strict" and not allowed:
+            await self._reject_member(event, group_id, user_id,
+                                      user_name, "不在白名单")
+            return
+        if mode == "blacklist" and blocked:
+            await self._reject_member(event, group_id, user_id,
+                                      user_name, "黑名单")
+            return
+
+        # 审核通过：欢迎
+        if gm.get("welcome_enabled", False):
+            template = gm.get("welcome_message", "欢迎 {user_name} 加入本群！")
+            group_name = getattr(event.message_obj, "group_name", "") or ""
+            text = (str(template)
+                    .replace("{user_name}", user_name)
+                    .replace("{group_name}", str(group_name)))
+            await self._send_group(event, text)
+            logger.info(f"[群:{group_id}] 欢迎新人: {user_name}")
+        event.stop_event()
 
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
     async def on_group_message(self, event: AstrMessageEvent):
@@ -953,6 +1125,7 @@ class HumanLikePlugin(Star):
             "accumulation": dict(self.config.get("accumulation", {})),
             "proactive": dict(self.config.get("proactive", {})),
             "ai_timeout": dict(self.config.get("ai_timeout", {})),
+            "group_manage": dict(self.config.get("group_manage", {})),
             "interest_keywords": self.config.get("interest_keywords", []) or [],
             "reply_style": self.config.get("reply_style", ""),
             "ai_judge_prompt": self.config.get("ai_judge_prompt", ""),
@@ -963,10 +1136,23 @@ class HumanLikePlugin(Star):
         body = await request.json(default={})
         changed = False
 
+        # 名单类字段：Dashboard 以多行文本提交，先转为列表再合并
+        if isinstance(body.get("group_manage"), dict):
+            for key in ("allow_list", "block_list"):
+                if key in body["group_manage"]:
+                    val = body["group_manage"][key]
+                    if isinstance(val, str):
+                        body["group_manage"][key] = [
+                            ln.strip() for ln in val.splitlines() if ln.strip()
+                        ]
+                    elif not isinstance(val, list):
+                        body["group_manage"][key] = []
+
         # 合并保存：只覆盖表单提交的键，避免把 Dashboard 未展示的配置
         # （如 judge_provider_id）在保存时被清空
         for section in ["reply_engine", "flow_engine", "debounce",
-                        "accumulation", "proactive", "ai_timeout"]:
+                        "accumulation", "proactive", "ai_timeout",
+                        "group_manage"]:
             if section in body and isinstance(body[section], dict):
                 existing = self.config.get(section, {}) or {}
                 self.config[section] = {**existing, **body[section]}
