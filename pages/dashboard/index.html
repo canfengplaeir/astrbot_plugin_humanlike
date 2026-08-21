@@ -155,6 +155,26 @@ td:nth-child(5) { font-weight: 600; }
       <div class="range-field"><label>立即回复阈值 <output></output></label><input type="range" name="accumulation.immediate_flow_threshold" min="50" max="100" step="5"></div>
       <div class="field"><label>缓冲上限(条)</label><input type="number" name="accumulation.max_buffer_size" min="5" max="50" class="inp"></div>
     </div>
+    <div class="card"><h3>主动发言 <span style="font-size:12px;color:var(--muted)">v1.1</span></h3>
+      <p class="hint">群聊冷场到一定程度后，让AI决定是否主动起话题（默认关闭）</p>
+      <div class="field"><label><span>启用主动发言</span><input type="checkbox" name="proactive.enabled"></label></div>
+      <div class="range-field"><label>静默阈值(分钟) <output></output></label><input type="range" name="proactive.idle_minutes" min="5" max="120" step="5"></div>
+      <div class="range-field"><label>主动冷却(分钟) <output></output></label><input type="range" name="proactive.cooldown_minutes" min="10" max="240" step="10"></div>
+      <div class="range-field"><label>最低心流 <output></output></label><input type="range" name="proactive.min_flow" min="0" max="80" step="5"></div>
+      <div class="range-field"><label>每日上限(次) <output></output></label><input type="range" name="proactive.max_per_day" min="1" max="10" step="1"></div>
+    </div>
+    <div class="card"><h3>AI 调用</h3>
+      <div class="field"><label>AI判断专用模型</label><select name="reply_engine.judge_provider_id" class="inp" id="judgeProvider"><option value="">加载中...</option></select><span class="hint">指定发言/沉默判断用的模型，留空使用默认聊天模型。推荐便宜快速的模型以降低成本</span></div>
+      <div class="field"><label>判断超时(秒)</label><input type="number" name="ai_timeout.judge_seconds" min="5" max="120" class="inp"></div>
+      <div class="field"><label>回复超时(秒)</label><input type="number" name="ai_timeout.reply_seconds" min="10" max="180" class="inp"></div>
+      <div class="field"><label>关键词生成超时(秒)</label><input type="number" name="ai_timeout.keywords_seconds" min="10" max="180" class="inp"></div>
+      <div class="field"><label>主动发言超时(秒)</label><input type="number" name="ai_timeout.proactive_seconds" min="5" max="120" class="inp"></div>
+    </div>
+    <div class="card"><h3>提示词（高级）</h3>
+      <p class="hint">覆盖默认的AI判断与回复指令。inherit_persona 开启时，人格设定会自动出现在提示词之前</p>
+      <div class="field"><label>AI判断提示词</label><textarea name="ai_judge_prompt" rows="6" class="inp" style="font-family:inherit;resize:vertical"></textarea></div>
+      <div class="field"><label>AI回复提示词</label><textarea name="ai_reply_prompt" rows="6" class="inp" style="font-family:inherit;resize:vertical"></textarea></div>
+    </div>
     <div class="actions"><button type="submit" class="btn btn-primary" id="saveBtn">保存设置</button><span class="status-line" id="saveStatus"></span></div>
   </form>
 </div>
@@ -186,7 +206,7 @@ td:nth-child(5) { font-weight: 600; }
   <p class="subtitle">各群聊心流状态与发言统计</p>
   <div class="meta-bar" id="metaBar"></div>
   <div class="card" style="margin-top:16px">
-    <table><thead><tr><th>群聊</th><th style="width:200px">心流</th><th>上次发言</th><th>窗口</th><th>缓冲</th></tr></thead>
+    <table><thead><tr><th>群聊</th><th style="width:200px">心流</th><th>上次发言</th><th>最近消息</th><th>窗口</th><th>缓冲</th></tr></thead>
       <tbody id="groupTable"></tbody>
     </table>
     <div class="empty-msg" id="emptyMsg">尚无群聊数据</div>
@@ -221,7 +241,9 @@ const RANGES = [
   'flow_engine.flow_boost_question','flow_engine.flow_boost_activity',
   'flow_engine.flow_decay_on_reply','flow_engine.random_silence_probability',
   'debounce.min_reply_cooldown','debounce.max_replies_per_window',
-  'accumulation.silence_threshold','accumulation.immediate_flow_threshold'
+  'accumulation.silence_threshold','accumulation.immediate_flow_threshold',
+  'proactive.idle_minutes','proactive.cooldown_minutes',
+  'proactive.min_flow','proactive.max_per_day'
 ];
 RANGES.forEach(n => {
   const el = form.querySelector(`[name="${n}"]`);
@@ -251,6 +273,16 @@ async function loadSettings() {
     }
   } catch (e) { saveStatus.textContent = '加载失败'; saveStatus.className = 'status-line error'; }
 }
+// 先加载可用模型列表，再加载设置（下拉框选项需要先就位）
+(async () => {
+  try {
+    const provs = await bridge.apiGet('providers');
+    const sel = document.getElementById('judgeProvider');
+    sel.innerHTML = '<option value="">（默认聊天模型）</option>' +
+      provs.map(p => `<option value="${attr(p.id)}">${esc(p.name)}</option>`).join('');
+  } catch { /* 列表加载失败则保持默认选项 */ }
+  loadSettings();
+})();
 form.onsubmit = async (e) => {
   e.preventDefault();
   saveBtn.disabled = true; saveBtn.innerHTML = '<span class="spinner"></span>';
@@ -270,7 +302,6 @@ form.onsubmit = async (e) => {
   } catch (e) { saveStatus.textContent = e.message || '失败'; saveStatus.className = 'status-line error'; }
   saveBtn.disabled = false; saveBtn.innerHTML = '保存设置';
 };
-loadSettings();
 
 // ====== KEYWORDS ======
 const mi = document.getElementById('manualInput'), ab = document.getElementById('addBtn');
@@ -328,10 +359,10 @@ function fc(v) { return v>=70?'high':v>=40?'mid':'low'; }
 async function loadStatus() {
   try {
     const d = await bridge.apiGet('status/groups');
-    metaBar.innerHTML = `<span><span class="meta-dot"></span>接管${d.override?'开':'关'}</span><span><span class="meta-dot${d.accum_enabled?'':' off'}"></span>累积${d.accum_enabled?'开':'关'}</span>`;
+    metaBar.innerHTML = `<span><span class="meta-dot"></span>接管${d.override?'开':'关'}</span><span><span class="meta-dot${d.accum_enabled?'':' off'}"></span>累积${d.accum_enabled?'开':'关'}</span><span><span class="meta-dot${d.proactive_enabled?'':' off'}"></span>主动发言${d.proactive_enabled?'开':'关'}</span>`;
     if(!d.groups||!d.groups.length){ tbl.innerHTML=''; emp.style.display='block'; emp.textContent='尚无群聊数据'; return; }
     emp.style.display='none';
-    tbl.innerHTML = d.groups.map(g => `<tr><td>${g.group_id}</td><td><div class="flow-row"><div class="flow-bar-wrap"><div class="flow-bar-fill ${fc(g.flow)}" style="width:${Math.min(100,g.flow)}%"></div></div><span class="flow-val">${g.flow.toFixed(0)}</span></div></td><td>${ago(g.last_reply_ago)}</td><td>${g.recent_replies}</td><td style="color:${g.pending>0?'var(--terracotta)':''}">${g.pending>0?'● '+g.pending:'—'}</td></tr>`).join('');
+    tbl.innerHTML = d.groups.map(g => `<tr><td>${g.group_id}</td><td><div class="flow-row"><div class="flow-bar-wrap"><div class="flow-bar-fill ${fc(g.flow)}" style="width:${Math.min(100,g.flow)}%"></div></div><span class="flow-val">${g.flow.toFixed(0)}</span></div></td><td>${ago(g.last_reply_ago)}</td><td>${ago(g.last_msg_ago)}</td><td>${g.recent_replies}</td><td style="color:${g.pending>0?'var(--terracotta)':''}">${g.pending>0?'● '+g.pending:'—'}</td></tr>`).join('');
   } catch { emp.style.display='block'; emp.textContent='加载失败'; }
 }
 function startTimer() { timer=10; al.textContent=timer+'s'; clearInterval(interval); interval=setInterval(()=>{ timer--; al.textContent=timer+'s'; if(timer<=0){ loadStatus(); startTimer(); } },1000); }

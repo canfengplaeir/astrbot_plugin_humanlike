@@ -1,40 +1,80 @@
+import time
+
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api import logger
 
+_DEFAULT_KEY = "__default__"
+
 
 class PersonaBridge:
-    """人格桥接：从 AstrBot 人格管理器读取当前会话的人格设定。"""
+    """人格桥接：从 AstrBot 人格管理器读取当前会话的人格设定。
+
+    v1.1: 加入 TTL 缓存。旧版在每条群消息上都会调用两次
+    get_default_persona_v3()，高活跃群聊中会产生大量重复的配置读取。
+    """
+
+    # 缓存有效期（秒）。人格在 WebUI 修改后最多延迟这么久生效。
+    CACHE_TTL = 30.0
 
     def __init__(self, context, config):
         self._context = context
         self._inherit = config.get("reply_engine", {}).get("inherit_persona", True)
+        # key -> (fetch_time, persona_dict_or_None)
+        self._cache: dict[str, tuple[float, dict | None]] = {}
 
     @property
     def enabled(self) -> bool:
         return self._inherit
 
+    def invalidate(self):
+        """清空缓存（设置变更或人格被修改后调用）。"""
+        self._cache.clear()
+
+    async def _get(self, umo: str | None) -> dict | None:
+        key = umo or _DEFAULT_KEY
+        now = time.time()
+        hit = self._cache.get(key)
+        if hit and now - hit[0] < self.CACHE_TTL:
+            return hit[1]
+        try:
+            p = await self._context.persona_manager.get_default_persona_v3(umo)
+            persona = dict(p) if p else None
+        except Exception as e:
+            logger.warning(f"获取人格设定失败: {e}")
+            persona = None
+        self._cache[key] = (now, persona)
+        return persona
+
     async def system_prompt(self, event: AstrMessageEvent) -> str:
         if not self._inherit:
             return ""
-        try:
-            p = await self._context.persona_manager.get_default_persona_v3(
-                event.unified_msg_origin
-            )
-            if p and p.get("prompt"):
-                return str(p["prompt"]).strip()
-        except Exception as e:
-            logger.warning(f"获取人格设定失败: {e}")
+        p = await self._get(getattr(event, "unified_msg_origin", None))
+        if p and p.get("prompt"):
+            return str(p["prompt"]).strip()
         return ""
 
     async def name(self, event: AstrMessageEvent) -> str:
         if not self._inherit:
             return ""
-        try:
-            p = await self._context.persona_manager.get_default_persona_v3(
-                event.unified_msg_origin
-            )
-            if p and p.get("name"):
-                return str(p["name"]).strip()
-        except Exception:
-            pass
+        p = await self._get(getattr(event, "unified_msg_origin", None))
+        if p and p.get("name"):
+            return str(p["name"]).strip()
+        return ""
+
+    # ── 无事件场景（主动发言等）──────────────────────────────
+
+    async def system_prompt_for(self, umo: str | None) -> str:
+        if not self._inherit:
+            return ""
+        p = await self._get(umo)
+        if p and p.get("prompt"):
+            return str(p["prompt"]).strip()
+        return ""
+
+    async def name_for(self, umo: str | None) -> str:
+        if not self._inherit:
+            return ""
+        p = await self._get(umo)
+        if p and p.get("name"):
+            return str(p["name"]).strip()
         return ""

@@ -196,6 +196,74 @@
       }
     }
   },
+  "proactive": {
+    "description": "主动发言设置",
+    "type": "object",
+    "hint": "群聊冷场到一定程度后，让AI决定是否主动起话题（v1.1 新增）",
+    "items": {
+      "enabled": {
+        "description": "启用主动发言",
+        "type": "bool",
+        "default": false,
+        "hint": "开启后，插件会周期性检查各群：群聊静默超过阈值且心流足够时，由AI决定是否主动说点什么"
+      },
+      "idle_minutes": {
+        "description": "静默阈值(分钟)",
+        "type": "int",
+        "default": 30,
+        "hint": "群聊连续多少分钟没有新消息后，才考虑主动发言"
+      },
+      "cooldown_minutes": {
+        "description": "主动发言冷却(分钟)",
+        "type": "int",
+        "default": 60,
+        "hint": "两次主动发言之间的最小间隔"
+      },
+      "min_flow": {
+        "description": "最低心流",
+        "type": "int",
+        "default": 40,
+        "hint": "心流低于此值时不会主动发言（群太冷场、机器人兴致低落时不打扰）"
+      },
+      "max_per_day": {
+        "description": "每日上限(次)",
+        "type": "int",
+        "default": 3,
+        "hint": "每个群24小时内最多主动发言次数，防止话痨"
+      }
+    }
+  },
+  "ai_timeout": {
+    "description": "AI调用超时设置",
+    "type": "object",
+    "hint": "控制各 LLM 调用的超时时间，防止模型卡住导致回复流程挂起",
+    "items": {
+      "judge_seconds": {
+        "description": "AI判断超时(秒)",
+        "type": "int",
+        "default": 20,
+        "hint": "发言/沉默判断的超时时间。判断失败/超时按沉默处理"
+      },
+      "reply_seconds": {
+        "description": "回复生成超时(秒)",
+        "type": "int",
+        "default": 60,
+        "hint": "生成回复的超时时间"
+      },
+      "keywords_seconds": {
+        "description": "关键词生成超时(秒)",
+        "type": "int",
+        "default": 60,
+        "hint": "AI生成关键词的超时时间"
+      },
+      "proactive_seconds": {
+        "description": "主动发言超时(秒)",
+        "type": "int",
+        "default": 30,
+        "hint": "主动发言时AI决定是否说话的思考超时"
+      }
+    }
+  },
   "interest_keywords": {
     "description": "感兴趣的关键词",
     "type": "list",

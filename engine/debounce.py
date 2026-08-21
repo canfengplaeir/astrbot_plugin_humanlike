@@ -30,7 +30,7 @@ class DebounceChecker:
             logger.debug(f"防抖: 频率限制 ({len(recent)}/{max_msgs})")
             return False
 
-        threshold = float(self._fc.get("flow_reply_threshold", 45))
+        threshold = float(self._fc.get("flow_reply_threshold", 20))
         if state.flow_level < threshold:
             logger.debug(f"防抖: 心流不足 ({state.flow_level:.1f}<{threshold:.0f})")
             return False

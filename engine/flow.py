@@ -1,4 +1,26 @@
 from astrbot.api import logger
+from astrbot.api.event import AstrMessageEvent
+
+
+def is_mentioned(event: AstrMessageEvent) -> bool:
+    """跨平台判断机器人是否被 @ 提及。
+
+    优先使用 AstrBot 事件自带的 is_at_or_wake_command（QQ/Telegram/微信等
+    平台适配器均已实现），再回退到手动扫描消息链中的 At 组件（兼容旧版）。
+    """
+    if getattr(event, "is_at_or_wake_command", False):
+        return True
+
+    bot_id = str(getattr(event.message_obj, "self_id", "") or "")
+    for comp in getattr(event.message_obj, "message", None) or []:
+        cname = type(comp).__name__
+        if cname == "At":
+            cid = str(getattr(comp, "qq", "") or "")
+            if cid == bot_id or cid == "all":
+                return True
+        elif cname == "AtAll":
+            return True
+    return False
 
 
 class FlowEngine:
@@ -11,7 +33,14 @@ class FlowEngine:
         self._ai_keywords: list = []
 
     def set_ai_keywords(self, keywords: list[str]):
-        self._ai_keywords = [kw for kw in keywords if kw]
+        seen = set()
+        cleaned = []
+        for kw in keywords or []:
+            k = str(kw).strip()
+            if k and k.lower() not in seen:
+                seen.add(k.lower())
+                cleaned.append(k)
+        self._ai_keywords = cleaned
 
     @property
     def has_ai_keywords(self) -> bool:
@@ -40,16 +69,9 @@ class FlowEngine:
         decay = time_diff * self.decay_rate()
         state.flow_level = max(0, state.flow_level - decay)
 
-        bot_id = str(event.message_obj.self_id)
         triggers = []
 
-        is_mentioned = False
-        for comp in event.message_obj.message:
-            if type(comp).__name__ == "At" and str(getattr(comp, "qq", "")) == bot_id:
-                is_mentioned = True
-                break
-
-        if is_mentioned:
+        if is_mentioned(event):
             boost = float(self._cfg.get("flow_boost_mention", 45))
             state.flow_level = min(100, state.flow_level + boost)
             triggers.append(f"@+{boost:.0f}")
@@ -75,7 +97,10 @@ class FlowEngine:
             state.flow_level = min(100, state.flow_level + boost)
             triggers.append(f"问号+{boost:.0f}")
 
-        recent_60s = sum(1 for t in state.reply_timestamps if current_time - t < 60)
+        # 活跃度加成：统计“群消息”而非机器人自己的回复时间戳
+        # （旧逻辑统计 reply_timestamps，由于防抖的存在几乎永远不会触发）
+        recent_60s = sum(1 for t in state.msg_timestamps
+                         if current_time - t < 60)
         if recent_60s >= 3:
             boost = float(self._cfg.get("flow_boost_activity", 3))
             state.flow_level = min(100, state.flow_level + boost)

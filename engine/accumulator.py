@@ -4,6 +4,7 @@ import random
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api import logger
 
+from .flow import is_mentioned
 from .state import GroupState
 
 
@@ -27,11 +28,9 @@ class AccumulationManager:
         if not self.enabled:
             return True
 
-        bot_id = str(event.message_obj.self_id)
-        for comp in event.message_obj.message:
-            if type(comp).__name__ == "At" and str(getattr(comp, "qq", "")) == bot_id:
-                logger.debug("累积: @提及触发立即回复")
-                return True
+        if is_mentioned(event):
+            logger.debug("累积: @提及触发立即回复")
+            return True
 
         names = [n for n in [persona_name, self._reply_cfg.get("bot_name", "")] if n]
         for name in names:
