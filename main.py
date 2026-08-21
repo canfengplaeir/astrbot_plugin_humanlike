@@ -14,7 +14,7 @@ from astrbot.core.agent.message import (
 )
 
 from .engine import GroupState, FlowEngine, DebounceChecker, AccumulationManager
-from .engine.flow import is_mentioned
+from .engine.flow import is_direct_mention, is_mentioned
 from .engine.state import MAX_CONTEXT
 from .ai import PersonaBridge, AIClient
 
@@ -22,6 +22,8 @@ PLUGIN_NAME = "astrbot_plugin_humanlike"
 
 # 主动发言循环扫描间隔（秒）
 PROACTIVE_SCAN_INTERVAL = 60
+# 群状态保留时长：超过该时长无消息的群状态会被清理
+STATE_TTL_SECONDS = 24 * 3600
 
 
 class HumanLikePlugin(Star):
@@ -147,6 +149,28 @@ class HumanLikePlugin(Star):
         if self._override():
             event.stop_event()
 
+    def _wake_prefixes(self) -> list[str]:
+        """读取 AstrBot 全局配置的指令唤醒前缀（默认 /）。
+
+        其他插件用自定义前缀注册指令时，本插件也能正确放行，
+        避免接管模式下吞掉其他插件的指令。
+        """
+        try:
+            prefixes = (self.context.get_config().get("provider_settings", {})
+                        or {}).get("wake_prefix", ["/"])
+            if isinstance(prefixes, str):
+                prefixes = [prefixes]
+            result = [str(p) for p in prefixes if p]
+            return result or ["/"]
+        except Exception:
+            return ["/"]
+
+    def _is_command_message(self, event: AstrMessageEvent) -> bool:
+        text = (event.message_str or "").strip()
+        if not text:
+            return False
+        return any(text.startswith(p) for p in self._wake_prefixes())
+
     # ============================================================
     # 主入口
     # ============================================================
@@ -165,18 +189,18 @@ class HumanLikePlugin(Star):
         msg_preview = (event.message_str or "")[:50]
 
         if cfg.get("reply_engine", {}).get("allow_command_pass", True):
-            if (event.message_str or "").strip().startswith("/"):
+            if self._is_command_message(event):
                 logger.debug(f"[群:{group_id}] 指令放行: {msg_preview}")
                 return
 
-        logger.info(
+        logger.debug(
             f"[群:{group_id}] 收到消息 | "
             f"{event.get_sender_name()}({sender_id}) | {msg_preview}"
         )
 
         state = await self._get_state(group_id)
-        # 被 @ 提及 → 必定回复：跳过 AI 判断与防抖
-        mentioned = is_mentioned(event)
+        # 被直接点名 → 必定回复：跳过 AI 判断与防抖（@全体不算点名）
+        mentioned = is_direct_mention(event)
         msg_text = event.message_str or ""
 
         if not mentioned and not msg_text.strip():
@@ -263,7 +287,7 @@ class HumanLikePlugin(Star):
                 # 若管道正在运行，缓冲消息由管道负责写入上下文，避免重复
                 state.append_context(event.get_sender_name() or "未知", msg_text)
                 if not mentioned and not self.debounce.check(state, now):
-                    logger.info(f"[群:{group_id}] 防抖拦截（立即触发但频率受限）")
+                    logger.debug(f"[群:{group_id}] 防抖拦截（立即触发但频率受限）")
                     self._stop_if_override(event)
                     return
 
@@ -286,7 +310,7 @@ class HumanLikePlugin(Star):
                         self.accum.cancel_timer(state)
                         asyncio.ensure_future(self._run_batch_pipeline(group_id))
 
-                    logger.info(
+                    logger.debug(
                         f"[群:{group_id}] 累积: 缓冲({len(state.pending_messages)}条, "
                         f"心流={state.flow_level:.0f})"
                     )
@@ -294,7 +318,7 @@ class HumanLikePlugin(Star):
                     state.append_context(event.get_sender_name() or "未知",
                                          msg_text)
                     if not mentioned and not self.debounce.check(state, now):
-                        logger.info(f"[群:{group_id}] 防抖拦截")
+                        logger.debug(f"[群:{group_id}] 防抖拦截")
                         self._stop_if_override(event)
                         return
                     flow_snap = state.flow_level
@@ -388,10 +412,10 @@ class HumanLikePlugin(Star):
             last_event = pending[-1].get("event") if pending else None
             if not last_event:
                 return
-            # 批处理中若最后一条是 @ 提及（如防抖重试期间积压的 @），同样必定回复
-            mentioned = is_mentioned(last_event)
+            # 批处理中若最后一条是直接点名（如防抖重试期间积压的 @），同样必定回复
+            mentioned = is_direct_mention(last_event)
 
-            logger.info(
+            logger.debug(
                 f"[群:{group_id}] 批处理: {len(pending)}条 "
                 f"| {' → '.join(m['text'][:20] for m in pending[-3:])}"
             )
@@ -475,11 +499,28 @@ class HumanLikePlugin(Star):
     # 主动发言
     # ============================================================
 
+    async def _cleanup_stale_states(self):
+        """清理超过 STATE_TTL_SECONDS 无消息的群状态，防止内存无限增长。"""
+        try:
+            cutoff = time.time() - STATE_TTL_SECONDS
+            async with self._lock:
+                stale = [gid for gid, s in self._states.items()
+                         if s.last_msg_time > 0 and s.last_msg_time < cutoff]
+                for gid in stale:
+                    s = self._states[gid]
+                    self.accum.cancel_timer(s)
+                    del self._states[gid]
+            if stale:
+                logger.debug(f"清理 {len(stale)} 个超过24h无消息的群状态")
+        except Exception as e:
+            logger.debug(f"清理群状态失败: {e}")
+
     async def _proactive_loop(self):
         """周期性扫描各群，冷场到一定程度时让 AI 决定是否主动起话题。"""
         while True:
             try:
                 await asyncio.sleep(PROACTIVE_SCAN_INTERVAL)
+                await self._cleanup_stale_states()
                 pc = self.config.get("proactive", {}) or {}
                 if not pc.get("enabled", False):
                     continue

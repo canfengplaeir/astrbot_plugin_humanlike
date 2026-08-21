@@ -4,7 +4,7 @@ import time
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api import logger
 
-from ..engine.flow import is_mentioned
+from ..engine.flow import is_direct_mention
 
 
 class AIClient:
@@ -92,8 +92,11 @@ class AIClient:
 
     @staticmethod
     def _mention_note(event: AstrMessageEvent) -> str:
-        """被 @ 时的提示语，用于让 LLM 明确感知「直接点名」这一事实。"""
-        if is_mentioned(event):
+        """被直接点名时的提示语，用于让 LLM 明确感知「直接点名」这一事实。
+
+        仅对点名机器人本人生效（@全体不算），与「必定回复」语义一致。
+        """
+        if is_direct_mention(event):
             return "【注意】你被 @ 了，原则上必须回复。\n\n"
         return ""
 
@@ -102,7 +105,7 @@ class AIClient:
         """构造「最新消息」描述行；单纯 @（无文字）时也能表达清楚。"""
         sender = event.get_sender_name() or "某人"
         text = (event.message_str or "").strip()
-        if is_mentioned(event):
+        if is_direct_mention(event):
             return f"{sender} @了你" + (f"，说：「{text}」" if text else "")
         return f"{sender} 说：「{text}」"
 

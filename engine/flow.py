@@ -3,7 +3,7 @@ from astrbot.api.event import AstrMessageEvent
 
 
 def is_mentioned(event: AstrMessageEvent) -> bool:
-    """跨平台判断机器人是否被 @ 提及。
+    """跨平台判断机器人是否被 @ 提及（含 @全体成员）。
 
     优先使用 AstrBot 事件自带的 is_at_or_wake_command（QQ/Telegram/微信等
     平台适配器均已实现），再回退到手动扫描消息链中的 At 组件（兼容旧版）。
@@ -21,6 +21,30 @@ def is_mentioned(event: AstrMessageEvent) -> bool:
         elif cname == "AtAll":
             return True
     return False
+
+
+def is_direct_mention(event: AstrMessageEvent) -> bool:
+    """是否被直接点名（@ 机器人本人），排除 @全体成员。
+
+    用于「必定回复」语义：@全体是群广播，不算直接点名。
+    组件扫描优先：消息链中出现 At/AtAll 组件时以组件为准（At 命中自己 → True，
+    否则即使平台标记 is_at_or_wake_command 为 True——@全体/唤醒词场景——也返回 False）；
+    消息链中无 At 组件时回退平台标记（部分平台适配器的 @ 不产生标准 At 组件）。
+    """
+    msg = getattr(event.message_obj, "message", None) or []
+    bot_id = str(getattr(event.message_obj, "self_id", "") or "")
+    has_at = False
+    for comp in msg:
+        cname = type(comp).__name__
+        if cname == "AtAll":
+            has_at = True
+        elif cname == "At":
+            has_at = True
+            if str(getattr(comp, "qq", "") or "") == bot_id:
+                return True
+    if has_at:
+        return False
+    return getattr(event, "is_at_or_wake_command", False)
 
 
 class FlowEngine:
