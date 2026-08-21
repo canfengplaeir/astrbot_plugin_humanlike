@@ -175,12 +175,18 @@ td:nth-child(5) { font-weight: 600; }
       <div class="field"><label>AI判断提示词</label><textarea name="ai_judge_prompt" rows="6" class="inp" style="font-family:inherit;resize:vertical"></textarea></div>
       <div class="field"><label>AI回复提示词</label><textarea name="ai_reply_prompt" rows="6" class="inp" style="font-family:inherit;resize:vertical"></textarea></div>
     </div>
-    <div class="card"><h3>群管理 <span style="font-size:12px;color:var(--muted)">v1.2</span></h3>
-      <p class="hint">新人入群自动审核 + 防爆破 + 入群欢迎（踢人依赖 OneBot 系平台，默认关闭）</p>
+    <div class="card"><h3>群管理 <span style="font-size:12px;color:var(--muted)">v1.3</span></h3>
+      <p class="hint">新人入群自动审核 + 防爆破 + 入群欢迎（踢人/等级查询需 OneBot 系平台，默认关闭）</p>
       <div class="field"><label><span>启用群管理</span><input type="checkbox" name="group_manage.enabled"></label></div>
-      <div class="field"><label>审核模式</label><select name="group_manage.audit_mode" class="inp"><option value="off">关闭审核（不踢人）</option><option value="blacklist">黑名单拒绝</option><option value="strict">仅白名单放行</option></select></div>
-      <div class="field"><label>白名单（QQ号或昵称，每行一个）</label><textarea name="group_manage.allow_list" rows="3" class="inp" style="font-family:inherit;resize:vertical"></textarea></div>
-      <div class="field"><label>黑名单（QQ号或昵称，每行一个）</label><textarea name="group_manage.block_list" rows="3" class="inp" style="font-family:inherit;resize:vertical"></textarea></div>
+      <div class="field"><label>审核模式</label><select name="group_manage.audit_mode" class="inp"><option value="off">关闭审核（不踢人）</option><option value="blacklist">黑名单拒绝</option><option value="strict">仅白名单放行</option><option value="ai_qa">AI 问答审核</option><option value="level">等级审核</option></select></div>
+      <div class="field"><label>白名单（QQ号或昵称，每行一个）</label><textarea name="group_manage.allow_list" rows="2" class="inp" style="font-family:inherit;resize:vertical"></textarea></div>
+      <div class="field"><label>黑名单（QQ号或昵称，每行一个）</label><textarea name="group_manage.block_list" rows="2" class="inp" style="font-family:inherit;resize:vertical"></textarea></div>
+      <div class="field"><label>固定验证问题（留空则AI生成）</label><input type="text" name="group_manage.qa_question" class="inp" placeholder="例如：本群的暗号是什么？"></div>
+      <div class="field"><label>AI审核规则</label><textarea name="group_manage.qa_audit_prompt" rows="4" class="inp" style="font-family:inherit;resize:vertical"></textarea><span class="hint">AI 判断新人回答是否合格的规则，可针对不同群定制</span></div>
+      <div class="field"><label>最多回答次数</label><input type="number" name="group_manage.qa_max_attempts" min="1" max="10" class="inp"></div>
+      <div class="field"><label>问答超时(分钟)</label><input type="number" name="group_manage.qa_timeout_minutes" min="1" max="120" class="inp"></div>
+      <div class="field"><label>最低等级（level模式）</label><input type="number" name="group_manage.level_min" min="0" max="20" class="inp"></div>
+      <div class="field"><label>等级查询失败时</label><select name="group_manage.level_unknown_action" class="inp"><option value="allow">放行（推荐）</option><option value="reject">拒绝</option></select></div>
       <div class="field"><label><span>入群欢迎</span><input type="checkbox" name="group_manage.welcome_enabled"></label></div>
       <div class="field"><label>欢迎模板</label><input type="text" name="group_manage.welcome_message" class="inp" placeholder="欢迎 {user_name} 加入本群！"></div>
       <div class="field"><label><span>踢人通知</span><input type="checkbox" name="group_manage.kick_notice"></label></div>
@@ -188,7 +194,7 @@ td:nth-child(5) { font-weight: 600; }
       <div class="field"><label><span>防爆破</span><input type="checkbox" name="group_manage.anti_raid_enabled"></label></div>
       <div class="field"><label>爆破阈值(人)</label><input type="number" name="group_manage.anti_raid_count" min="2" max="50" class="inp"></div>
       <div class="field"><label>统计窗口(秒)</label><input type="number" name="group_manage.anti_raid_window" min="10" max="600" class="inp"></div>
-      <span class="hint">变量: &#123;user_name&#125; 新人昵称, &#123;group_name&#125; 群名</span>
+      <div class="field"><label>按群规则（高级 JSON）</label><textarea name="group_manage.group_rules" rows="5" class="inp" style="font-family:monospace;font-size:12px;resize:vertical" placeholder='[{"match":"*","audit_mode":"off"},{"match":"123456","audit_mode":"ai_qa","qa_question":"暗号？"}]'></textarea><span class="hint">按顺序匹配第一条命中的规则（match 为群号或 * 兜底），字段覆盖上方全局配置。变量: &#123;user_name&#125; &#123;group_name&#125;</span></div>
     </div>
     <div class="actions"><button type="submit" class="btn btn-primary" id="saveBtn">保存设置</button><span class="status-line" id="saveStatus"></span></div>
   </form>
@@ -290,6 +296,9 @@ async function loadSettings() {
     const gm = data.group_manage || {};
     for (const k of ['allow_list','block_list']) {
       if (Array.isArray(gm[k])) setVal(`group_manage.${k}`, gm[k].join('\n'));
+    }
+    if (Array.isArray(gm.group_rules)) {
+      setVal('group_manage.group_rules', JSON.stringify(gm.group_rules, null, 2));
     }
   } catch (e) { saveStatus.textContent = '加载失败'; saveStatus.className = 'status-line error'; }
 }

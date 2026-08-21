@@ -261,6 +261,12 @@
         "type": "int",
         "default": 30,
         "hint": "主动发言时AI决定是否说话的思考超时"
+      },
+      "audit_seconds": {
+        "description": "入群审核超时(秒)",
+        "type": "int",
+        "default": 30,
+        "hint": "AI问答审核（出题/判卷）的超时时间"
       }
     }
   },
@@ -279,8 +285,54 @@
         "description": "审核模式",
         "type": "str",
         "default": "off",
-        "options": ["off", "blacklist", "strict"],
-        "hint": "off=不踢人；blacklist=仅黑名单拒绝，其余放行；strict=仅白名单放行，其余拒绝"
+        "options": ["off", "blacklist", "strict", "ai_qa", "level"],
+        "hint": "off=不踢人；blacklist=仅黑名单拒绝；strict=仅白名单放行；ai_qa=AI问答审核（入群后出题，AI按规则审核回答）；level=等级审核（仅 OneBot 系平台支持，查成员等级，过低拒绝）"
+      },
+      "qa_question": {
+        "description": "固定验证问题",
+        "type": "str",
+        "default": "",
+        "hint": "ai_qa 模式使用的验证问题。留空则由 AI 根据审核规则自动生成问题"
+      },
+      "qa_audit_prompt": {
+        "description": "AI审核规则",
+        "type": "text",
+        "default": "你是本群的入群审核员。根据群规判断新人的回答是否合格。\n\n审核原则：\n1. 回答与问题相关且认真，视为合格\n2. 答非所问、敷衍、乱码、辱骂，视为不合格\n3. 拿不准时倾向拒绝，宁缺毋滥\n\n请只回复「通过」或「拒绝」，并附一句话原因。",
+        "editor_mode": true,
+        "editor_language": "plaintext",
+        "editor_theme": "vs-dark",
+        "hint": "ai_qa 模式下 AI 判断新人回答是否合格的规则。可以在不同群规则中为每个群定制"
+      },
+      "qa_max_attempts": {
+        "description": "最多回答次数",
+        "type": "int",
+        "default": 3,
+        "hint": "新人最多可回答几次，超次数仍未通过则拒绝"
+      },
+      "qa_timeout_minutes": {
+        "description": "超时时间(分钟)",
+        "type": "int",
+        "default": 10,
+        "hint": "提问后超过该时间未通过验证，自动拒绝（有踢人能力的平台会踢出）"
+      },
+      "level_min": {
+        "description": "最低等级",
+        "type": "int",
+        "default": 3,
+        "hint": "level 模式：成员等级低于该值拒绝入群（OneBot 系平台的群活跃等级）"
+      },
+      "level_unknown_action": {
+        "description": "等级查询失败时的动作",
+        "type": "str",
+        "default": "allow",
+        "options": ["allow", "reject"],
+        "hint": "平台不支持等级查询或查询失败时的处理：allow=放行并记录日志（推荐，避免误杀）；reject=拒绝"
+      },
+      "group_rules": {
+        "description": "按群审核规则（高级）",
+        "type": "list",
+        "default": [],
+        "hint": "为不同群配置不同的审核方式，按顺序匹配第一个命中的规则，可用 * 作为兜底。格式见 README，也可在 Dashboard 编辑 JSON"
       },
       "allow_list": {
         "description": "白名单",

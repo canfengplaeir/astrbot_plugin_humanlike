@@ -382,6 +382,96 @@ class AIClient:
             logger.error(f"主动发言生成失败: {e}")
             return ""
 
+    # ── 入群审核 ─────────────────────────────────────────────
+
+    @staticmethod
+    def parse_audit(result: str) -> tuple[bool, str]:
+        """解析 AI 入群审核结果：返回 (是否通过, 原因)。
+
+        兼容「通过/拒绝」+ 解释的常见输出；无法解析时保守按拒绝处理。
+        """
+        text = (result or "").strip().strip('"\'“”‘’`*#~.。，, ')
+        if not text:
+            return False, "AI未返回结果"
+
+        def _pass(t: str) -> bool:
+            return "通过" in t or "合格" in t or "同意" in t
+
+        def _reject(t: str) -> bool:
+            return "拒绝" in t or "不合格" in t or "不通过" in t
+
+        # 含转折词时只看转折后的部分，如「虽然能通过，但本次拒绝」→ 拒绝
+        if "但" in text:
+            tail = text[text.rfind("但"):]
+            if _reject(tail) and not _pass(tail):
+                return False, text[:40]
+            if _pass(tail) and not _reject(tail):
+                return True, text[:40]
+
+        has_pass, has_reject = _pass(text), _reject(text)
+        if has_pass and not has_reject:
+            return True, text[:40]
+        if has_reject and not has_pass:
+            return False, text[:40]
+        if has_pass and has_reject:
+            i_pass = text.find("通过")
+            i_reject = text.find("拒绝")
+            if i_pass >= 0 and i_reject >= 0:
+                return (i_pass < i_reject), text[:40]
+            return False, text[:40]
+        return False, text[:40]
+
+    async def generate_qa_question(self, umo: str, rule_prompt: str,
+                                   persona_system_prompt: str = "",
+                                   persona_name: str = "") -> str:
+        """根据审核规则让 AI 生成一个入群验证问题。"""
+        try:
+            prompt = (
+                f"{self._persona_block(persona_system_prompt, persona_name, short=True)}"
+                f"你是本群的入群审核员。根据以下审核规则，生成一个验证新人的入群问题。\n"
+                f"问题要简短、有区分度，能筛掉机器人，但别太难为真人。\n\n"
+                f"审核规则：\n{rule_prompt[:800] or '（未配置，生成一个通用验证问题）'}\n\n"
+                f"请只输出问题本身，不要任何前缀解释："
+            )
+            pid = await self._provider_id_by_umo(umo)
+            if not pid:
+                return ""
+            text = await self._llm(pid, prompt, self._timeout("audit", 30))
+            text = self.clean_reply(text)
+            return text if len(text) <= 100 else text[:100]
+        except Exception as e:
+            logger.error(f"生成验证问题失败: {e}")
+            return ""
+
+    async def audit_qa_answer(self, umo: str, question: str, answer: str,
+                              rule_prompt: str,
+                              persona_system_prompt: str = "",
+                              persona_name: str = "") -> tuple[bool, str]:
+        """AI 审核新人的回答：返回 (是否通过, 原因)。"""
+        try:
+            prompt = (
+                f"{self._persona_block(persona_system_prompt, persona_name, short=True)}"
+                f"你是本群的入群审核员，请根据审核规则判断新人的回答是否合格。\n\n"
+                f"【审核规则】\n{rule_prompt[:800] or '回答认真且与问题相关即合格'}\n\n"
+                f"验证问题：{question}\n"
+                f"新人回答：{answer or '（空白）'}\n\n"
+                f"请只回复「通过」或「拒绝」，并附一句话原因："
+            )
+            pid = await self._provider_id_by_umo(umo)
+            if not pid:
+                logger.warning("无可用 provider，入群审核按拒绝处理")
+                return False, "无可用模型"
+            raw = await self._llm(pid, prompt, self._timeout("audit", 30))
+            passed, reason = self.parse_audit(raw)
+            logger.info(f"[入群审核] {'通过' if passed else '拒绝'} | 原因: {reason}")
+            return passed, reason
+        except asyncio.TimeoutError:
+            logger.warning(f"[入群审核] 超时（{self._timeout('audit', 30)}s）→ 拒绝")
+            return False, "审核超时"
+        except Exception as e:
+            logger.error(f"入群审核失败: {e}")
+            return False, "审核异常"
+
     # ── 关键词生成 ────────────────────────────────────────────
 
     async def generate_keywords(self, event: AstrMessageEvent | None = None,

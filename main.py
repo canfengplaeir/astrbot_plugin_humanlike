@@ -1,4 +1,5 @@
 import asyncio
+import json
 import time
 from typing import Dict
 
@@ -45,6 +46,8 @@ class HumanLikePlugin(Star):
         self._proactive_task = None
         # 入群时间记录（防爆破统计）：group_id -> [(时间戳, 用户ID)]
         self._join_records: Dict[str, list[tuple[float, str]]] = {}
+        # AI 问答审核中的待验证成员：group_id -> {user_id: {asked_at, attempts, question}}
+        self._pending_qa: Dict[str, Dict[str, dict]] = {}
 
         context.register_web_api(
             f"/{PLUGIN_NAME}/keywords/list", self._api_kw_list, ["GET"], "关键词列表")
@@ -89,6 +92,7 @@ class HumanLikePlugin(Star):
             self.accum.cancel_timer(s)
         self._states.clear()
         self._join_records.clear()
+        self._pending_qa.clear()
 
     async def _init_keywords(self):
         if not self.config.get("reply_engine", {}).get("use_ai_keywords", False):
@@ -235,6 +239,53 @@ class HumanLikePlugin(Star):
         records.append((ts, user_id))
         self._join_records[group_id] = [r for r in records if ts - r[0] <= 600][-200:]
 
+    def _resolve_rule(self, group_id: str) -> dict:
+        """解析该群生效的审核规则：精确群号优先匹配，`*` 兜底（最后匹配），
+        命中的规则字段覆盖全局 group_manage 的同名参数。
+
+        规则条目字段示例：
+        {"match": "123456", "audit_mode": "ai_qa",
+         "qa_question": "本群暗号？", "qa_audit_prompt": "..."}
+        """
+        gm = self.config.get("group_manage", {}) or {}
+        merged = dict(gm)
+        try:
+            rules = [r for r in gm.get("group_rules", []) or []
+                     if isinstance(r, dict)]
+            # 第一轮：精确群号
+            for rule in rules:
+                if str(rule.get("match", "") or "").strip() == str(group_id):
+                    merged.update({k: v for k, v in rule.items() if k != "match"})
+                    return merged
+            # 第二轮：* 兜底
+            for rule in rules:
+                if str(rule.get("match", "") or "").strip() == "*":
+                    merged.update({k: v for k, v in rule.items() if k != "match"})
+                    break
+        except Exception as e:
+            logger.debug(f"解析群规则失败: {e}")
+        return merged
+
+    async def _reject_member(self, event: AstrMessageEvent, group_id: str,
+                             user_id: str, user_name: str, reason: str):
+        """审核不通过：踢出 + 可选通知。"""
+        gm = self.config.get("group_manage", {}) or {}
+        kicked = await self._kick_member(event, group_id, user_id)
+        if gm.get("kick_notice", True):
+            if kicked:
+                template = gm.get("kick_message", "已拒绝 {user_name} 入群。")
+                text = str(template).replace("{user_name}", user_name)
+                await self._send_group(event, text)
+            else:
+                await self._send_group(
+                    event,
+                    f"⚠️ {user_name} 未通过入群审核，但当前平台不支持自动移除，请管理员处理。")
+        event.stop_event()
+        logger.info(
+            f"[群:{group_id}] 已拒绝 {user_name}({user_id}) 入群: {reason}"
+            f"（踢出={'成功' if kicked else '失败/平台不支持'}）"
+        )
+
     async def _kick_member(self, event: AstrMessageEvent,
                            group_id: str, user_id: str) -> bool:
         """踢出群成员（仅支持 OneBot 系平台，如 aiocqhttp）。"""
@@ -265,24 +316,148 @@ class HumanLikePlugin(Star):
         except Exception as e:
             logger.debug(f"群消息发送失败: {e}")
 
-    async def _reject_member(self, event: AstrMessageEvent, group_id: str,
-                             user_id: str, user_name: str, reason: str):
-        """审核不通过：踢出 + 可选通知。"""
-        kicked = await self._kick_member(event, group_id, user_id)
-        gm = self.config.get("group_manage", {}) or {}
-        if kicked and gm.get("kick_notice", True):
-            template = gm.get("kick_message", "已拒绝 {user_name} 入群。")
-            text = str(template).replace("{user_name}", user_name)
-            await self._send_group(event, text)
+    async def _get_member_level(self, event: AstrMessageEvent,
+                                group_id: str, user_id: str) -> int | None:
+        """查询成员群等级（OneBot 系 get_group_member_info.level）。
+
+        返回数字等级；平台不支持/查询失败返回 None。
+        """
+        try:
+            platform = self.context.get_platform_inst(event.get_platform_id())
+            bot = platform.get_client() if platform else None
+            if bot is None or not hasattr(bot, "call_action"):
+                logger.warning(f"[群:{group_id}] 当前平台不支持等级查询")
+                return None
+            info = await bot.call_action(
+                "get_group_member_info",
+                group_id=int(group_id),
+                user_id=int(user_id),
+            )
+            level = (info or {}).get("level", "")
+            return int(str(level).strip()) if str(level).strip().isdigit() else None
+        except Exception as e:
+            logger.warning(f"[群:{group_id}] 查询成员等级失败: {e}")
+            return None
+
+    # ── AI 问答审核 ──────────────────────────────────────────
+
+    async def _start_qa(self, event: AstrMessageEvent, group_id: str,
+                        user_id: str, user_name: str, rule: dict):
+        """入群后发起 AI 问答验证：提问并登记待验证状态。"""
+        question = str(rule.get("qa_question", "") or "").strip()
+        if not question:
+            persona_prompt = (await self.persona.system_prompt_for(
+                event.unified_msg_origin)) if self.persona.enabled else ""
+            persona_name = (await self.persona.name_for(
+                event.unified_msg_origin)) if self.persona.enabled else ""
+            question = await self.ai.generate_qa_question(
+                event.unified_msg_origin,
+                str(rule.get("qa_audit_prompt", "") or ""),
+                persona_prompt, persona_name)
+        if not question:
+            question = "请回答本群的入群验证问题：你是因为什么加入本群的？"
+
+        self._pending_qa.setdefault(group_id, {})[user_id] = {
+            "asked_at": time.time(),
+            "attempts": 0,
+            "question": question,
+            "user_name": user_name,
+            "platform_id": event.get_platform_id(),
+        }
+        try:
+            from astrbot.core.message.message_event_result import MessageChain
+            chain = MessageChain()
+            try:
+                chain.at(user_name, int(user_id))
+            except Exception:
+                chain.message(f"@{user_name} ")
+            chain.message(f"{question}\n"
+                         f"（请在群里回复答案，共{rule.get('qa_max_attempts', 3)}次机会）")
+            await self.context.send_message(
+                session=event.unified_msg_origin, message_chain=chain)
+        except Exception as e:
+            logger.debug(f"发送验证问题失败: {e}")
         event.stop_event()
-        logger.info(
-            f"[群:{group_id}] 已拒绝 {user_name}({user_id}) 入群: {reason}"
-            f"（踢出={'成功' if kicked else '失败/平台不支持'}）"
-        )
+        logger.info(f"[群:{group_id}] 已向 {user_name}({user_id}) 发起入群问答")
+
+    async def _handle_qa_reply(self, event: AstrMessageEvent, group_id: str,
+                               user_id: str, rule: dict):
+        """待验证成员发言：AI 审核回答。"""
+        pend = self._pending_qa.get(group_id, {}).get(user_id)
+        if not pend:
+            return
+        answer = (event.message_str or "").strip()
+        user_name = pend.get("user_name") or event.get_sender_name() or "新成员"
+        pend["attempts"] += 1
+        max_attempts = int(rule.get("qa_max_attempts", 3))
+        event.stop_event()
+
+        if not answer:
+            left = max_attempts - pend["attempts"]
+            await self._send_group(event,
+                                   f"{user_name} 请直接回复文字答案（还可回答{left}次）")
+            return
+
+        persona_prompt = (await self.persona.system_prompt_for(
+            event.unified_msg_origin)) if self.persona.enabled else ""
+        persona_name = (await self.persona.name_for(
+            event.unified_msg_origin)) if self.persona.enabled else ""
+        passed, reason = await self.ai.audit_qa_answer(
+            event.unified_msg_origin, pend["question"], answer,
+            str(rule.get("qa_audit_prompt", "") or ""),
+            persona_prompt, persona_name)
+        self._pending_qa.get(group_id, {}).pop(user_id, None)
+
+        if passed:
+            if rule.get("welcome_enabled", False):
+                template = rule.get("welcome_message",
+                                    "欢迎 {user_name} 加入本群！")
+                group_name = getattr(event.message_obj, "group_name", "") or ""
+                text = (str(template).replace("{user_name}", user_name)
+                        .replace("{group_name}", str(group_name)))
+                await self._send_group(event, text)
+            logger.info(f"[群:{group_id}] 问答通过: {user_name}({user_id})")
+        else:
+            await self._reject_member(event, group_id, user_id, user_name,
+                                      f"问答不通过: {reason}")
+        self._prune_qa_group(group_id)
+
+    def _prune_qa_group(self, group_id: str):
+        pend = self._pending_qa.get(group_id)
+        if pend is not None and not pend:
+            self._pending_qa.pop(group_id, None)
+
+    async def _expire_qa(self, group_id: str, now: float):
+        """超时未通过验证的待验证成员：拒绝（有踢人能力的平台踢出）。"""
+        pend = self._pending_qa.get(group_id)
+        if not pend:
+            return
+        timeout = float(self.config.get("group_manage", {}).get(
+            "qa_timeout_minutes", 10)) * 60
+        stale = [(uid, p) for uid, p in pend.items()
+                 if now - p["asked_at"] > timeout]
+        for uid, p in stale:
+            pend.pop(uid, None)
+            logger.info(f"[群:{group_id}] 问答超时，拒绝 {p.get('user_name') or uid}({uid})")
+            # 超时场景没有可用的入群事件，跳过群通知，仅尽力踢出
+            try:
+                platform = self.context.get_platform_inst(
+                    p.get("platform_id", "aiocqhttp"))
+                bot = platform.get_client() if platform else None
+                if bot is not None and hasattr(bot, "call_action"):
+                    await bot.call_action(
+                        "set_group_kick",
+                        group_id=int(group_id),
+                        user_id=int(uid),
+                        reject_add_request=False,
+                    )
+            except Exception as e:
+                logger.debug(f"[群:{group_id}] 超时踢出失败: {e}")
+        self._prune_qa_group(group_id)
 
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
     async def on_group_member_join(self, event: AstrMessageEvent):
-        """入群事件处理：自动审核 + 防爆破 + 欢迎。
+        """入群事件处理：自动审核（名单/AI问答/等级）+ 防爆破 + 欢迎。
 
         与主消息处理器共存：入群事件由本方法处理，
         主处理器会因「无文本消息」忽略它。
@@ -299,15 +474,20 @@ class HumanLikePlugin(Star):
 
         user_name = event.get_sender_name() or "新成员"
         now = time.time()
+        # 惰性清理本群过期的问答待验证成员
+        await self._expire_qa(group_id, now)
         self._record_join(group_id, now, user_id)
         logger.info(f"[群:{group_id}] 检测到入群: {user_name}({user_id})")
 
+        # 解析该群生效的审核规则（group_rules 覆盖全局）
+        rule = self._resolve_rule(group_id)
+
         # 防爆破：窗口内入群人数达到阈值 → 窗口内成员全部拒绝（含已放行的）
-        if gm.get("anti_raid_enabled", True):
-            window = float(gm.get("anti_raid_window", 60))
+        if rule.get("anti_raid_enabled", True):
+            window = float(rule.get("anti_raid_window", 60))
             records = [r for r in self._join_records.get(group_id, [])
                        if now - r[0] < window]
-            threshold = int(gm.get("anti_raid_count", 5))
+            threshold = int(rule.get("anti_raid_count", 5))
             if len(records) >= threshold:
                 logger.warning(
                     f"[群:{group_id}] 防爆破触发: {window:.0f}s内{len(records)}人入群"
@@ -320,25 +500,54 @@ class HumanLikePlugin(Star):
                                           user_name, "防爆破")
                 return
 
-        # 名单审核
-        mode = str(gm.get("audit_mode", "off"))
-        allow_list = gm.get("allow_list", []) or []
-        block_list = gm.get("block_list", []) or []
+        # 名单审核：黑名单在所有模式下都优先拒绝
+        allow_list = rule.get("allow_list", []) or []
+        block_list = rule.get("block_list", []) or []
         blocked = self._match_member(user_id, user_name, block_list)
         allowed = self._match_member(user_id, user_name, allow_list)
-
-        if mode == "strict" and not allowed:
-            await self._reject_member(event, group_id, user_id,
-                                      user_name, "不在白名单")
-            return
-        if mode == "blacklist" and blocked:
+        if blocked:
             await self._reject_member(event, group_id, user_id,
                                       user_name, "黑名单")
             return
 
+        mode = str(rule.get("audit_mode", "off"))
+        if mode == "blacklist":
+            # 黑名单已在上面拦截，其余放行
+            pass
+        elif mode == "strict" and not allowed:
+            await self._reject_member(event, group_id, user_id,
+                                      user_name, "不在白名单")
+            return
+        elif mode == "ai_qa":
+            if allowed:
+                # 白名单成员免问答
+                pass
+            else:
+                await self._start_qa(event, group_id, user_id,
+                                     user_name, rule)
+                return
+        elif mode == "level":
+            if allowed:
+                pass
+            else:
+                level = await self._get_member_level(event, group_id, user_id)
+                if level is None:
+                    unknown = str(rule.get("level_unknown_action", "allow"))
+                    if unknown == "reject":
+                        await self._reject_member(event, group_id, user_id,
+                                                  user_name, "等级未知")
+                        return
+                    logger.warning(
+                        f"[群:{group_id}] 无法获取 {user_name}({user_id}) 的等级，"
+                        f"按配置放行")
+                elif level < int(rule.get("level_min", 3)):
+                    await self._reject_member(event, group_id, user_id,
+                                              user_name, f"等级过低({level})")
+                    return
+
         # 审核通过：欢迎
-        if gm.get("welcome_enabled", False):
-            template = gm.get("welcome_message", "欢迎 {user_name} 加入本群！")
+        if rule.get("welcome_enabled", False):
+            template = rule.get("welcome_message", "欢迎 {user_name} 加入本群！")
             group_name = getattr(event.message_obj, "group_name", "") or ""
             text = (str(template)
                     .replace("{user_name}", user_name)
@@ -355,6 +564,13 @@ class HumanLikePlugin(Star):
 
         sender_id = str(event.get_sender_id())
         if sender_id == str(event.message_obj.self_id):
+            return
+
+        # AI 问答审核：待验证成员的发言走审核流程，不进入拟人对话
+        gm = self.config.get("group_manage", {}) or {}
+        if gm.get("enabled", False) and self._pending_qa.get(group_id, {}).get(sender_id):
+            rule = self._resolve_rule(group_id)
+            await self._handle_qa_reply(event, group_id, sender_id, rule)
             return
 
         cfg = self.config
@@ -1136,7 +1352,7 @@ class HumanLikePlugin(Star):
         body = await request.json(default={})
         changed = False
 
-        # 名单类字段：Dashboard 以多行文本提交，先转为列表再合并
+        # 名单/规则类字段：Dashboard 以多行文本/JSON 提交，先转换再合并
         if isinstance(body.get("group_manage"), dict):
             for key in ("allow_list", "block_list"):
                 if key in body["group_manage"]:
@@ -1147,6 +1363,17 @@ class HumanLikePlugin(Star):
                         ]
                     elif not isinstance(val, list):
                         body["group_manage"][key] = []
+            if "group_rules" in body["group_manage"]:
+                val = body["group_manage"]["group_rules"]
+                if isinstance(val, str):
+                    try:
+                        parsed = json.loads(val)
+                        body["group_manage"]["group_rules"] = (
+                            parsed if isinstance(parsed, list) else [])
+                    except Exception:
+                        body["group_manage"]["group_rules"] = []
+                elif not isinstance(val, list):
+                    body["group_manage"]["group_rules"] = []
 
         # 合并保存：只覆盖表单提交的键，避免把 Dashboard 未展示的配置
         # （如 judge_provider_id）在保存时被清空
