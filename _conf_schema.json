@@ -283,14 +283,14 @@
       },
       "audit_mode": {
         "description": "审核模式",
-        "type": "str",
+        "type": "string",
         "default": "off",
         "options": ["off", "blacklist", "strict", "ai_qa", "level"],
         "hint": "off=不踢人；blacklist=仅黑名单拒绝；strict=仅白名单放行；ai_qa=AI问答审核（入群后出题，AI按规则审核回答）；level=等级审核（仅 OneBot 系平台支持，查成员等级，过低拒绝）"
       },
       "qa_question": {
         "description": "固定验证问题",
-        "type": "str",
+        "type": "string",
         "default": "",
         "hint": "ai_qa 模式使用的验证问题。留空则由 AI 根据审核规则自动生成问题"
       },
@@ -323,7 +323,7 @@
       },
       "level_unknown_action": {
         "description": "等级查询失败时的动作",
-        "type": "str",
+        "type": "string",
         "default": "allow",
         "options": ["allow", "reject"],
         "hint": "平台不支持等级查询或查询失败时的处理：allow=放行并记录日志（推荐，避免误杀）；reject=拒绝"
@@ -354,7 +354,7 @@
       },
       "welcome_message": {
         "description": "欢迎消息模板",
-        "type": "str",
+        "type": "string",
         "default": "欢迎 {user_name} 加入本群！",
         "hint": "变量：{user_name} 新人昵称，{group_name} 群名"
       },
@@ -366,7 +366,7 @@
       },
       "kick_message": {
         "description": "踢人提示模板",
-        "type": "str",
+        "type": "string",
         "default": "已拒绝 {user_name} 入群。",
         "hint": "变量：{user_name} 被拒绝成员昵称"
       },
