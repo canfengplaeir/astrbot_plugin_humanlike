@@ -69,55 +69,55 @@
       "flow_decay_rate": {
         "description": "心流衰减速度",
         "type": "float",
-        "default": 0.15,
+        "default": 0.03,
         "hint": "每秒衰减的心流值。值越小，机器人兴趣保持越久"
       },
       "initial_flow": {
         "description": "初始心流值",
         "type": "int",
-        "default": 50,
+        "default": 55,
         "hint": "每个群初始的心流值，50表示中性状态"
       },
       "flow_reply_threshold": {
         "description": "回复心流阈值",
         "type": "int",
-        "default": 20,
+        "default": 35,
         "hint": "心流值达到此阈值时才考虑回复。越低机器人话越多"
       },
       "flow_boost_mention": {
         "description": "@提及加成",
         "type": "int",
-        "default": 45,
+        "default": 35,
         "hint": "被@或名字被提及时增加的心流值"
       },
       "flow_boost_keyword": {
         "description": "关键词加成",
         "type": "int",
-        "default": 15,
+        "default": 18,
         "hint": "消息包含感兴趣的关键词时增加的心流值"
       },
       "flow_boost_question": {
         "description": "问句加成",
         "type": "int",
-        "default": 25,
+        "default": 20,
         "hint": "消息包含问号时额外增加的心流值"
       },
       "flow_boost_activity": {
         "description": "活跃度加成",
         "type": "int",
-        "default": 3,
+        "default": 10,
         "hint": "群聊消息频繁时每60秒内的额外加成"
       },
       "flow_decay_on_reply": {
         "description": "回复后衰减",
         "type": "int",
-        "default": 12,
+        "default": 18,
         "hint": "机器人回复后降低的心流值，模拟'说完话后暂时安静'的行为"
       },
       "random_silence_probability": {
         "description": "随机沉默概率(%)",
         "type": "float",
-        "default": 2.0,
+        "default": 10.0,
         "hint": "即使心流值达标，也有概率保持沉默。0-100，越低话越多"
       }
     }
@@ -130,7 +130,7 @@
       "min_reply_cooldown": {
         "description": "最小回复间隔(秒)",
         "type": "int",
-        "default": 8,
+        "default": 4,
         "hint": "两次发言之间最少间隔的秒数"
       },
       "max_replies_per_window": {
@@ -142,7 +142,7 @@
       "reply_window_seconds": {
         "description": "时间窗口(秒)",
         "type": "int",
-        "default": 300,
+        "default": 60,
         "hint": "统计发言次数的时间窗口"
       },
       "dynamic_cooldown_enabled": {
@@ -154,13 +154,13 @@
       "min_dynamic_cooldown": {
         "description": "动态冷却下限(秒)",
         "type": "int",
-        "default": 10,
+        "default": 4,
         "hint": "动态冷却的最短间隔"
       },
       "max_dynamic_cooldown": {
         "description": "动态冷却上限(秒)",
         "type": "int",
-        "default": 60,
+        "default": 10,
         "hint": "动态冷却的最长间隔"
       }
     }
@@ -179,19 +179,19 @@
       "silence_threshold": {
         "description": "沉默阈值(秒)",
         "type": "int",
-        "default": 3,
+        "default": 15,
         "hint": "连续多少秒没有新消息后，触发批量处理"
       },
       "immediate_flow_threshold": {
         "description": "立即回复心流阈值",
         "type": "int",
-        "default": 55,
+        "default": 70,
         "hint": "心流值超过此阈值时，跳过累积等待，立即回复。值越低越容易插话"
       },
       "max_buffer_size": {
         "description": "最大缓冲条数",
         "type": "int",
-        "default": 20,
+        "default": 15,
         "hint": "缓冲消息达到此数量时，即使未到沉默时间也强制处理。防止内存无限增长"
       }
     }
@@ -210,7 +210,7 @@
       "idle_minutes": {
         "description": "静默阈值(分钟)",
         "type": "int",
-        "default": 30,
+        "default": 20,
         "hint": "群聊连续多少分钟没有新消息后，才考虑主动发言"
       },
       "cooldown_minutes": {
@@ -222,7 +222,7 @@
       "min_flow": {
         "description": "最低心流",
         "type": "int",
-        "default": 40,
+        "default": 45,
         "hint": "心流低于此值时不会主动发言（群太冷场、机器人兴致低落时不打扰）"
       },
       "max_per_day": {
@@ -241,25 +241,25 @@
       "judge_seconds": {
         "description": "AI判断超时(秒)",
         "type": "int",
-        "default": 20,
+        "default": 12,
         "hint": "发言/沉默判断的超时时间。判断失败/超时按沉默处理"
       },
       "reply_seconds": {
         "description": "回复生成超时(秒)",
         "type": "int",
-        "default": 60,
+        "default": 45,
         "hint": "生成回复的超时时间"
       },
       "keywords_seconds": {
         "description": "关键词生成超时(秒)",
         "type": "int",
-        "default": 60,
+        "default": 30,
         "hint": "AI生成关键词的超时时间"
       },
       "proactive_seconds": {
         "description": "主动发言超时(秒)",
         "type": "int",
-        "default": 30,
+        "default": 25,
         "hint": "主动发言时AI决定是否说话的思考超时"
       }
     }
@@ -291,7 +291,14 @@
   "reply_style": {
     "description": "语气微调方向",
     "type": "string",
-    "options": ["随性自然", "活泼可爱", "高冷简洁", "幽默风趣", "温柔体贴", "毒舌吐槽"],
+    "options": [
+      "随性自然",
+      "活泼可爱",
+      "高冷简洁",
+      "幽默风趣",
+      "温柔体贴",
+      "毒舌吐槽"
+    ],
     "default": "随性自然",
     "hint": "当 inherit_persona 开启时，此为在人格设定基础上的语气微调；关闭时则为完整回复风格"
   }

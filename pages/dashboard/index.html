@@ -118,6 +118,11 @@ td:nth-child(5) { font-weight: 600; }
 <div class="tab active" id="tab-settings">
   <h2>插件设置</h2>
   <p class="subtitle">所有配置项可在此操作，修改后保存即时生效</p>
+  <div class="card"><h3>🎛️ 一键配置 <span style="font-size:12px;color:var(--muted)">v1.4</span></h3>
+    <p class="hint">按群聊规模一键套用整套联动参数（心流/防抖/累积/主动/超时），应用后仍可手动微调任意参数</p>
+    <div class="input-row" id="presetBtns"></div>
+    <div class="status-line" id="presetStatus"></div>
+  </div>
   <form id="settingsForm" autocomplete="off">
     <div class="card"><h3>回复引擎</h3>
       <div class="field"><label><span>接管群聊回复</span><input type="checkbox" name="reply_engine.override_group_replies"></label><span class="hint">开启后交给心流引擎判断</span></div>
@@ -132,22 +137,22 @@ td:nth-child(5) { font-weight: 600; }
     </div>
     <div class="card"><h3>心流引擎</h3>
       <div class="range-field"><label>回复阈值 <output></output></label><input type="range" name="flow_engine.flow_reply_threshold" min="10" max="80" step="5"></div>
-      <div class="range-field"><label>衰减速度 <output></output></label><input type="range" name="flow_engine.flow_decay_rate" min="0.1" max="1" step="0.05"></div>
+      <div class="range-field"><label>衰减速度 <output></output></label><input type="range" name="flow_engine.flow_decay_rate" min="0.01" max="1" step="0.01"></div>
       <div class="field"><label>初始心流</label><input type="number" name="flow_engine.initial_flow" min="0" max="100" class="inp"></div>
       <div class="range-field"><label>@提及加成 <output></output></label><input type="range" name="flow_engine.flow_boost_mention" min="10" max="60" step="5"></div>
       <div class="range-field"><label>关键词加成 <output></output></label><input type="range" name="flow_engine.flow_boost_keyword" min="5" max="40" step="5"></div>
       <div class="range-field"><label>问句加成 <output></output></label><input type="range" name="flow_engine.flow_boost_question" min="5" max="40" step="5"></div>
-      <div class="range-field"><label>活跃加成 <output></output></label><input type="range" name="flow_engine.flow_boost_activity" min="1" max="10" step="1"></div>
+      <div class="range-field"><label>活跃加成 <output></output></label><input type="range" name="flow_engine.flow_boost_activity" min="1" max="15" step="1"></div>
       <div class="range-field"><label>发言后衰减 <output></output></label><input type="range" name="flow_engine.flow_decay_on_reply" min="5" max="50" step="5"></div>
       <div class="range-field"><label>随机沉默(%) <output></output></label><input type="range" name="flow_engine.random_silence_probability" min="0" max="40" step="5"></div>
     </div>
     <div class="card"><h3>防抖</h3>
-      <div class="range-field"><label>最小间隔(秒) <output></output></label><input type="range" name="debounce.min_reply_cooldown" min="5" max="60" step="1"></div>
+      <div class="range-field"><label>最小间隔(秒) <output></output></label><input type="range" name="debounce.min_reply_cooldown" min="2" max="60" step="1"></div>
       <div class="range-field"><label>窗口最大发言 <output></output></label><input type="range" name="debounce.max_replies_per_window" min="2" max="20" step="1"></div>
       <div class="field"><label>时间窗口(秒)</label><input type="number" name="debounce.reply_window_seconds" min="60" max="600" class="inp"></div>
       <div class="field"><label><span>动态冷却</span><input type="checkbox" name="debounce.dynamic_cooldown_enabled"></label></div>
       <div class="field"><label>冷却下限(秒)</label><input type="number" name="debounce.min_dynamic_cooldown" min="3" max="30" class="inp"></div>
-      <div class="field"><label>冷却上限(秒)</label><input type="number" name="debounce.max_dynamic_cooldown" min="20" max="120" class="inp"></div>
+      <div class="field"><label>冷却上限(秒)</label><input type="number" name="debounce.max_dynamic_cooldown" min="5" max="120" class="inp"></div>
     </div>
     <div class="card"><h3>累积模式</h3>
       <div class="field"><label><span>启用累积</span><input type="checkbox" name="accumulation.enabled"></label></div>
@@ -282,6 +287,42 @@ async function loadSettings() {
       provs.map(p => `<option value="${attr(p.id)}">${esc(p.name)}</option>`).join('');
   } catch { /* 列表加载失败则保持默认选项 */ }
   loadSettings();
+})();
+
+// ====== 一键配置预设 ======
+(async () => {
+  const wrap = document.getElementById('presetBtns');
+  const st = document.getElementById('presetStatus');
+  try {
+    const presets = await bridge.apiGet('presets');
+    wrap.innerHTML = presets.map(p =>
+      `<button class="btn btn-primary" data-preset="${attr(p.name)}" title="${esc(p.desc)}" style="flex:1">${esc(p.label)}</button>`
+    ).join('');
+    wrap.querySelectorAll('button').forEach(b => {
+      b.onclick = async () => {
+        b.disabled = true;
+        st.textContent = '⏳ 正在应用...';
+        st.className = 'status-line';
+        try {
+          const r = await bridge.apiPost('presets/apply', { name: b.dataset.preset });
+          if (r.ok) {
+            st.textContent = `✅ 已应用「${r.label}」，可继续手动微调任意参数`;
+            st.className = 'status-line success';
+            loadSettings();
+          } else {
+            st.textContent = '❌ 应用失败';
+            st.className = 'status-line error';
+          }
+        } catch (e) {
+          st.textContent = '❌ ' + (e.message || '应用失败');
+          st.className = 'status-line error';
+        }
+        b.disabled = false;
+      };
+    });
+  } catch {
+    wrap.innerHTML = '<span class="empty-msg">预设加载失败</span>';
+  }
 })();
 form.onsubmit = async (e) => {
   e.preventDefault();

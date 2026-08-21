@@ -25,6 +25,144 @@ PROACTIVE_SCAN_INTERVAL = 60
 # 群状态保留时长：超过该时长无消息的群状态会被清理
 STATE_TTL_SECONDS = 24 * 3600
 
+# ============================================================
+# 一键配置预设（联动调整心流/防抖/累积/主动/超时）
+# 应用时只覆盖预设中定义的键；开关类、名单类、提示词等不触碰，
+# 应用后仍可在 Dashboard 手动微调任意参数。
+# ============================================================
+
+PRESETS: Dict[str, dict] = {
+    # 日常闲聊群（50~200 人，推荐）
+    "casual": {
+        "label": "日常闲聊群",
+        "desc": "50~200人日常群：热闹时跟得上、冷静时等一等、冷场时偶尔撩",
+        "values": {
+            "flow_engine": {
+                "flow_decay_rate": 0.03,
+                "initial_flow": 55,
+                "flow_reply_threshold": 35,
+                "flow_boost_mention": 35,
+                "flow_boost_keyword": 18,
+                "flow_boost_question": 20,
+                "flow_boost_activity": 10,
+                "flow_decay_on_reply": 18,
+                "random_silence_probability": 10,
+            },
+            "debounce": {
+                "min_reply_cooldown": 4,
+                "max_replies_per_window": 12,
+                "reply_window_seconds": 60,
+                "dynamic_cooldown_enabled": True,
+                "min_dynamic_cooldown": 4,
+                "max_dynamic_cooldown": 10,
+            },
+            "accumulation": {
+                "silence_threshold": 15,
+                "immediate_flow_threshold": 70,
+                "max_buffer_size": 15,
+            },
+            "proactive": {
+                "idle_minutes": 20,
+                "cooldown_minutes": 60,
+                "min_flow": 45,
+                "max_per_day": 3,
+            },
+            "ai_timeout": {
+                "judge_seconds": 12,
+                "reply_seconds": 45,
+                "keywords_seconds": 30,
+                "proactive_seconds": 25,
+            },
+        },
+    },
+    # 热闹大群（200+ 人，快节奏）
+    "active": {
+        "label": "热闹大群",
+        "desc": "200人以上活跃群：节奏快、参与度高、话多一些",
+        "values": {
+            "flow_engine": {
+                "flow_decay_rate": 0.05,
+                "initial_flow": 60,
+                "flow_reply_threshold": 30,
+                "flow_boost_mention": 40,
+                "flow_boost_keyword": 20,
+                "flow_boost_question": 25,
+                "flow_boost_activity": 12,
+                "flow_decay_on_reply": 15,
+                "random_silence_probability": 5,
+            },
+            "debounce": {
+                "min_reply_cooldown": 3,
+                "max_replies_per_window": 15,
+                "reply_window_seconds": 90,
+                "dynamic_cooldown_enabled": True,
+                "min_dynamic_cooldown": 3,
+                "max_dynamic_cooldown": 8,
+            },
+            "accumulation": {
+                "silence_threshold": 10,
+                "immediate_flow_threshold": 65,
+                "max_buffer_size": 20,
+            },
+            "proactive": {
+                "idle_minutes": 15,
+                "cooldown_minutes": 45,
+                "min_flow": 50,
+                "max_per_day": 4,
+            },
+            "ai_timeout": {
+                "judge_seconds": 10,
+                "reply_seconds": 40,
+                "keywords_seconds": 30,
+                "proactive_seconds": 20,
+            },
+        },
+    },
+    # 安静小群（<50 人或潜水群，更克制）
+    "quiet": {
+        "label": "安静小群",
+        "desc": "小群或潜水群：低存在感、克制发言、极少主动打扰",
+        "values": {
+            "flow_engine": {
+                "flow_decay_rate": 0.02,
+                "initial_flow": 45,
+                "flow_reply_threshold": 45,
+                "flow_boost_mention": 40,
+                "flow_boost_keyword": 15,
+                "flow_boost_question": 18,
+                "flow_boost_activity": 6,
+                "flow_decay_on_reply": 20,
+                "random_silence_probability": 15,
+            },
+            "debounce": {
+                "min_reply_cooldown": 8,
+                "max_replies_per_window": 8,
+                "reply_window_seconds": 300,
+                "dynamic_cooldown_enabled": True,
+                "min_dynamic_cooldown": 8,
+                "max_dynamic_cooldown": 30,
+            },
+            "accumulation": {
+                "silence_threshold": 20,
+                "immediate_flow_threshold": 75,
+                "max_buffer_size": 10,
+            },
+            "proactive": {
+                "idle_minutes": 30,
+                "cooldown_minutes": 120,
+                "min_flow": 55,
+                "max_per_day": 2,
+            },
+            "ai_timeout": {
+                "judge_seconds": 15,
+                "reply_seconds": 60,
+                "keywords_seconds": 45,
+                "proactive_seconds": 30,
+            },
+        },
+    },
+}
+
 
 class HumanLikePlugin(Star):
     """拟人化群聊助手 — 编排各模块协同工作。"""
@@ -64,6 +202,10 @@ class HumanLikePlugin(Star):
             f"/{PLUGIN_NAME}/settings", self._api_settings_get, ["GET"], "读取全部设置")
         context.register_web_api(
             f"/{PLUGIN_NAME}/settings/save", self._api_settings_save, ["POST"], "保存设置")
+        context.register_web_api(
+            f"/{PLUGIN_NAME}/presets", self._api_presets, ["GET"], "一键配置预设列表")
+        context.register_web_api(
+            f"/{PLUGIN_NAME}/presets/apply", self._api_preset_apply, ["POST"], "应用一键配置预设")
         context.register_web_api(
             f"/{PLUGIN_NAME}/providers", self._api_providers, ["GET"], "可用的对话模型提供商")
 
@@ -983,7 +1125,11 @@ class HumanLikePlugin(Star):
             except Exception as e:
                 return error_response(f"保存失败: {e}")
 
-        # 同步内存中的模块配置
+        self._reload_module_configs()
+        return json_response({"ok": True})
+
+    def _reload_module_configs(self):
+        """把 self.config 的最新值同步到各模块的内存引用。"""
         self.flow._interest_keywords = self.config.get("interest_keywords", []) or []
         self.flow._cfg = self.config.get("flow_engine", {})
         self.flow._reply_cfg = self.config.get("reply_engine", {})
@@ -996,7 +1142,37 @@ class HumanLikePlugin(Star):
         self.persona._inherit = self.config.get("reply_engine", {}).get(
             "inherit_persona", True)
         self.persona.invalidate()
-        return json_response({"ok": True})
+
+    async def _api_presets(self):
+        """一键配置预设列表（供 Dashboard 渲染按钮）。"""
+        return json_response([
+            {"name": name, "label": p["label"], "desc": p["desc"],
+             "values": p["values"]}
+            for name, p in PRESETS.items()
+        ])
+
+    async def _api_preset_apply(self):
+        """应用一键配置预设：只覆盖预设定义的数值键，
+        开关类（enabled）、名单、提示词、judge_provider_id 等一律不触碰。
+        """
+        body = await request.json(default={})
+        name = (body.get("name") or "").strip()
+        preset = PRESETS.get(name)
+        if not preset:
+            return error_response(f"未知预设: {name}")
+
+        values = preset["values"]
+        for section, params in values.items():
+            existing = self.config.get(section, {}) or {}
+            self.config[section] = {**existing, **params}
+        try:
+            self.config.save_config()
+        except Exception as e:
+            return error_response(f"保存失败: {e}")
+
+        self._reload_module_configs()
+        logger.info(f"已应用一键配置「{preset['label']}」")
+        return json_response({"ok": True, "name": name, "label": preset["label"]})
 
     async def _api_providers(self):
         """列出可用的对话模型提供商，供 Dashboard 的「AI判断专用模型」下拉框使用。"""
