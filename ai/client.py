@@ -58,18 +58,13 @@ class AIClient:
             )
         return f"【核心人格设定（必须严格遵守）】\n{system_prompt}\n\n"
 
-    def _style_line(self, flow_level: float,
-                    persona_system_prompt: str) -> str:
-        style = self._cfg.get("reply_style", "随性自然")
+    def _style_line(self, flow_level: float) -> str:
+        """根据心流高低生成语气提示（人格完全继承 AstrBot，不再配置语气方向）。"""
         if flow_level >= 70:
-            hint = "（兴致较高，可多说一点）"
-        elif flow_level < 50:
-            hint = "（兴致一般，保持简短）"
-        else:
-            hint = ""
-        if self._re_cfg.get("inherit_persona", True) and persona_system_prompt:
-            return f"语气微调：{style} {hint}\n"
-        return f"回复风格：{style} {hint}\n"
+            return "（兴致较高，可多说一点）\n"
+        if flow_level < 50:
+            return "（兴致一般，保持简短）\n"
+        return ""
 
     def _judge_instructions(self) -> str:
         return self._re_cfg.get("ai_judge_prompt",
@@ -234,7 +229,7 @@ class AIClient:
             prompt = (
                 f"{self._persona_block(persona_system_prompt, persona_name)}"
                 f"【行为指令】\n{self._reply_instructions()}\n\n"
-                f"{self._style_line(flow_level, persona_system_prompt)}"
+                f"{self._style_line(flow_level)}"
                 f"心流值：{flow_level:.0f}/100\n\n"
                 f"最近群聊：\n{ctx}\n\n"
                 f"{self._latest_line(event)}\n\n"
@@ -313,7 +308,7 @@ class AIClient:
             prompt = (
                 f"{self._persona_block(persona_system_prompt, persona_name)}"
                 f"【行为指令】\n{self._reply_instructions()}\n\n"
-                f"{self._style_line(flow_level, persona_system_prompt)}"
+                f"{self._style_line(flow_level)}"
                 f"心流值：{flow_level:.0f}/100\n"
                 f"{self._mention_note(event)}"
                 f"【注意】以下是最近一段时间的群聊记录，请综合上下文后自然地参与讨论。\n\n"

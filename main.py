@@ -1096,7 +1096,6 @@ class HumanLikePlugin(Star):
             "proactive": dict(self.config.get("proactive", {})),
             "ai_timeout": dict(self.config.get("ai_timeout", {})),
             "interest_keywords": self.config.get("interest_keywords", []) or [],
-            "reply_style": self.config.get("reply_style", ""),
             "ai_judge_prompt": self.config.get("ai_judge_prompt", ""),
             "ai_reply_prompt": self.config.get("ai_reply_prompt", ""),
         })
@@ -1114,7 +1113,7 @@ class HumanLikePlugin(Star):
                 self.config[section] = {**existing, **body[section]}
                 changed = True
 
-        for key in ["interest_keywords", "reply_style", "ai_judge_prompt", "ai_reply_prompt"]:
+        for key in ["interest_keywords", "ai_judge_prompt", "ai_reply_prompt"]:
             if key in body:
                 self.config[key] = body[key]
                 changed = True

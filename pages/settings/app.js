@@ -82,7 +82,7 @@ async function load() {
     for (const [k, v] of Object.entries(flat)) {
       setVal(k, v);
     }
-    for (const k of ["reply_style", "ai_judge_prompt", "ai_reply_prompt"]) {
+    for (const k of ["ai_judge_prompt", "ai_reply_prompt"]) {
       if (data[k] !== undefined) setVal(k, data[k]);
     }
   } catch (e) {

@@ -133,7 +133,6 @@ td:nth-child(5) { font-weight: 600; }
       <div class="field"><label><span>AI关键词</span><input type="checkbox" name="reply_engine.use_ai_keywords"></label></div>
       <div class="field"><label>关键词数量</label><input type="number" name="reply_engine.keyword_count" min="3" max="30" value="10" class="inp"></div>
       <div class="field"><label>机器人名字(备用)</label><input type="text" name="reply_engine.bot_name" class="inp"></div>
-      <div class="field"><label>回复风格</label><select name="reply_style" class="inp"><option>随性自然</option><option>活泼可爱</option><option>高冷简洁</option><option>幽默风趣</option><option>温柔体贴</option><option>毒舌吐槽</option></select></div>
     </div>
     <div class="card"><h3>心流引擎</h3>
       <div class="range-field"><label>回复阈值 <output></output></label><input type="range" name="flow_engine.flow_reply_threshold" min="10" max="80" step="5"></div>
@@ -273,7 +272,7 @@ async function loadSettings() {
         for (const [k, v] of Object.entries(items)) setVal(`${sec}.${k}`, v);
       }
     }
-    for (const k of ['reply_style','ai_judge_prompt','ai_reply_prompt']) {
+    for (const k of ['ai_judge_prompt','ai_reply_prompt']) {
       if (data[k] !== undefined) setVal(k, data[k]);
     }
   } catch (e) { saveStatus.textContent = '加载失败'; saveStatus.className = 'status-line error'; }
