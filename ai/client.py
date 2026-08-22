@@ -242,11 +242,15 @@ class AIClient:
         try:
             ctx = "\n".join(f"[{m['sender']}]: {m['text']}" for m in context[-6:])
             latest = self._latest_line(event)
-            logger.debug(
+            diag = (
                 f"[AI判断] 消息描述: {latest!r} | "
                 f"direct_mention={is_direct_mention(event)} "
                 f"组件={[type(c).__name__ for c in getattr(event.message_obj, 'message', None) or []]} "
                 f"原文={event.message_str[:60]!r}")
+            if self._re_cfg.get("debug", False):
+                logger.info(f"[调试] {diag}")
+            else:
+                logger.debug(diag)
             prompt = (
                 f"{self._persona_block(persona_system_prompt, persona_name, short=True)}"
                 f"{self._judge_instructions()}\n"
@@ -289,7 +293,11 @@ class AIClient:
                     persona_name: str = "") -> str:
         try:
             ctx = "\n".join(f"[{m['sender']}]: {m['text']}" for m in context[-8:])
-            logger.debug(f"[AI回复] 消息描述: {self._latest_line(event)!r}")
+            diag = f"[AI回复] 消息描述: {self._latest_line(event)!r}"
+            if self._re_cfg.get("debug", False):
+                logger.info(f"[调试] {diag}")
+            else:
+                logger.debug(diag)
             prompt = (
                 f"{self._persona_block(persona_system_prompt, persona_name)}"
                 f"【行为指令】\n{self._reply_instructions()}\n\n"

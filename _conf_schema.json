@@ -46,6 +46,12 @@
         "default": "",
         "hint": "指定用于AI判断（发言/沉默）的模型提供商。留空则使用默认聊天模型。推荐使用便宜快速的模型以降低延迟和成本。",
         "_special": "select_provider"
+      },
+      "debug": {
+        "description": "调试模式",
+        "type": "bool",
+        "default": false,
+        "hint": "开启后以 INFO 级别打印 @ 检测详情与发给 AI 的消息描述，便于排查 @ 归属误判。排查完请关闭"
       }
     }
   },

@@ -346,17 +346,23 @@ class HumanLikePlugin(Star):
         mentioned = is_direct_mention(event)
         msg_text = event.message_str or ""
 
-        # 排查日志：@ 检测详情（组件形态 / 平台标记 / 文本形态）
+        # 排查日志：@ 检测详情（组件形态 / 平台标记 / 文本形态）。
+        # 调试模式开启时用 INFO 级别输出——插件日志级别独立于 AstrBot 全局
+        # debug，全局开 debug 不一定能看到插件日志。
         comp_names = [type(c).__name__ for c in
                       (getattr(event.message_obj, "message", None) or [])]
         has_text_mention = bool(re.search(r"<@!?[0-9A-Za-z_-]+>", msg_text))
-        logger.debug(
+        diag = (
             f"[群:{group_id}] @检测: direct_mention={mentioned} "
             f"at_or_wake={getattr(event, 'is_at_or_wake_command', False)} "
             f"组件={comp_names} 文本@={has_text_mention} "
             f"self_id={getattr(event.message_obj, 'self_id', '')!r} "
             f"原文={msg_text[:60]!r}"
         )
+        if cfg.get("reply_engine", {}).get("debug", False):
+            logger.info(f"[调试] {diag}")
+        else:
+            logger.debug(diag)
 
         if not mentioned and not msg_text.strip():
             # 纯图片/表情/语音等无文本消息：不参与对话、不触发 AI
