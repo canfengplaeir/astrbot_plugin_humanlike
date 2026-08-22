@@ -465,6 +465,11 @@ class HumanLikePlugin(Star):
                     self.accum.cancel_timer(state)
                     await self.accum.start_timer(group_id, state,
                                                  self._on_silence_timeout)
+                    if self.config.get("reply_engine", {}).get("debug", False):
+                        logger.info(
+                            f"[调试] [群:{group_id}] 已缓冲第{len(state.pending_messages)}条"
+                            f"（静默{self.accum.silence_threshold():.0f}s后批处理）"
+                        )
 
                     if self.accum.should_force_process(state):
                         logger.debug(f"[群:{group_id}] 累积缓冲满，立即处理")
@@ -576,6 +581,11 @@ class HumanLikePlugin(Star):
             # 批处理中若最后一条是直接点名（如防抖重试期间积压的 @），同样必定回复
             mentioned = is_direct_mention(last_event)
 
+            if self.config.get("reply_engine", {}).get("debug", False):
+                logger.info(
+                    f"[调试] [群:{group_id}] 批处理开始: {len(pending)}条 "
+                    f"| {' → '.join(m['text'][:20] for m in pending[-3:])}"
+                )
             logger.debug(
                 f"[群:{group_id}] 批处理: {len(pending)}条 "
                 f"| {' → '.join(m['text'][:20] for m in pending[-3:])}"
