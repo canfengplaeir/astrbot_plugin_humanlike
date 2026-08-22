@@ -532,7 +532,14 @@ class HumanLikePlugin(Star):
 
             logger.info(f"回复完毕 ({len(reply)}字) | 预览={reply[:40]}")
 
-            await event.send(event.plain_result(reply))
+            # 发送失败也要保证事件被接管（stop），否则事件继续传播，
+            # AstrBot 默认管道可能补一条回复
+            try:
+                await event.send(event.plain_result(reply))
+            except Exception as e:
+                logger.warning(f"回复发送失败: {e}")
+                self._stop_if_override(event)
+                return
 
             async with state.lock:
                 self._record_reply(state, now=time.time(),
@@ -618,7 +625,8 @@ class HumanLikePlugin(Star):
             async with state.lock:
                 # 只移除本次已拷贝的消息：处理期间新缓冲的消息不能丢
                 del state.pending_messages[:len(pending)]
-                state.silence_timer = None
+                # 取消沉默计时器：批处理已接管，避免旧计时器到期空跑
+                self.accum.cancel_timer(state)
                 for m in pending:
                     state.conversation_context.append({
                         "sender": m["sender"], "text": m["text"],
@@ -943,7 +951,8 @@ class HumanLikePlugin(Star):
         if not kw:
             return error_response("关键词不能为空")
         manual = self.config.get("interest_keywords", []) or []
-        if kw in manual:
+        # 大小写不敏感去重（与匹配逻辑一致）
+        if any(str(k).lower() == kw.lower() for k in manual):
             return json_response({"ok": True, "existed": True})
         manual.append(kw)
         self.config["interest_keywords"] = manual
@@ -1154,6 +1163,19 @@ class HumanLikePlugin(Star):
 
         for key in ["interest_keywords", "ai_judge_prompt", "ai_reply_prompt"]:
             if key in body:
+                if key == "interest_keywords":
+                    # 类型防御：必须是字符串列表，否则 _all_keywords 会逐字符遍历
+                    val = body[key]
+                    if not isinstance(val, list):
+                        return error_response("interest_keywords 必须是列表")
+                    seen = set()
+                    cleaned = []
+                    for k in val:
+                        s = str(k).strip()
+                        if s and s.lower() not in seen:
+                            seen.add(s.lower())
+                            cleaned.append(s)
+                    body[key] = cleaned
                 self.config[key] = body[key]
                 changed = True
 
