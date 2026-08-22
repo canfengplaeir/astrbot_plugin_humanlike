@@ -141,6 +141,17 @@ class AIClient:
         """移除文本中的 <@openid> 占位符（归属已由 _describe_mention 描述）。"""
         return _TEXT_MENTION_RE.sub("", text or "").strip()
 
+    @staticmethod
+    def clean_ctx_text(text: str) -> str:
+        """把文本中的 <@openid> 替换为可读的「@其他成员」。
+
+        用于写入对话上下文/历史记录（批处理判断与回复的群聊记录来源）——
+        立即路径有 _latest_line 的归属描述，批处理路径依赖上下文文本本身，
+        必须在这里清洗，否则 AI 在批处理时又会看到 <@xxx> 而误以为被 @。
+        （@ 自己的文本已被平台适配器移除并转为 At 组件，残留 <@...> 必为 @ 别人）
+        """
+        return _TEXT_MENTION_RE.sub("@其他成员", text or "").strip()
+
     @classmethod
     def _latest_line(cls, event: AstrMessageEvent) -> str:
         """构造「最新消息」描述行，完整还原 @ 归属，让 AI 分清谁在叫谁。

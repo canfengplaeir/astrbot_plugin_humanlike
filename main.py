@@ -370,6 +370,13 @@ class HumanLikePlugin(Star):
             self._stop_if_override(event)
             return
 
+        # 写入上下文/缓冲/历史的文本统一清洗 @ 占位符：
+        # <@openid> → @其他成员（批处理路径的 AI 判断依赖上下文文本，
+        # 若不清洗，AI 会再次看到 <@xxx> 而误以为被 @）
+        ctx_text = AIClient.clean_ctx_text(msg_text)
+        if has_text_mention and cfg.get("reply_engine", {}).get("debug", False):
+            logger.info(f"[调试] [群:{group_id}] 上下文清洗: {ctx_text[:60]!r}")
+
         persona_prompt, persona_name = "", ""
         if self.persona.enabled:
             persona_prompt = await self.persona.system_prompt(event)
@@ -446,7 +453,7 @@ class HumanLikePlugin(Star):
                         state.conversation_context = (
                             state.conversation_context[-MAX_CONTEXT:])
                 # 若管道正在运行，缓冲消息由管道负责写入上下文，避免重复
-                state.append_context(event.get_sender_name() or "未知", msg_text)
+                state.append_context(event.get_sender_name() or "未知", ctx_text)
                 if not mentioned and not self.debounce.check(state, now):
                     logger.debug(f"[群:{group_id}] 防抖拦截（立即触发但频率受限）")
                     self._stop_if_override(event)
@@ -459,7 +466,7 @@ class HumanLikePlugin(Star):
 
             else:
                 if self.accum.enabled:
-                    self.accum.add_to_buffer(state, event, msg_text,
+                    self.accum.add_to_buffer(state, event, ctx_text,
                                              event.get_sender_name() or "未知")
                     state.retry_count = 0
                     self.accum.cancel_timer(state)
@@ -482,7 +489,7 @@ class HumanLikePlugin(Star):
                     )
                 else:
                     state.append_context(event.get_sender_name() or "未知",
-                                         msg_text)
+                                         ctx_text)
                     if not mentioned and not self.debounce.check(state, now):
                         logger.debug(f"[群:{group_id}] 防抖拦截")
                         self._stop_if_override(event)
@@ -808,7 +815,10 @@ class HumanLikePlugin(Star):
         if not self.config.get("reply_engine", {}).get("record_conversation", True):
             return
         try:
-            msg_text = user_message if user_message is not None else (event.message_str or "")
+            # 写入历史前同样清洗 @ 占位符（批处理路径传入的 user_message 已清洗，
+            # 立即路径的 event.message_str 在这里兜底清洗）
+            msg_text = user_message if user_message is not None else \
+                AIClient.clean_ctx_text(event.message_str or "")
             mgr = self.context.conversation_manager
             cid = await mgr.get_curr_conversation_id(event.unified_msg_origin)
             if not cid:
