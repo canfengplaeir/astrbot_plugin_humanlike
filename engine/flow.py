@@ -105,15 +105,10 @@ class FlowEngine:
             boost = float(self._cfg.get("flow_boost_mention", 45))
             state.flow_level = min(100, state.flow_level + boost)
             triggers.append(f"@+{boost:.0f}")
-        else:
-            names = [n for n in [persona_name,
-                    self._reply_cfg.get("bot_name", "")] if n]
-            for name in names:
-                if name in message_text:
-                    boost = float(self._cfg.get("flow_boost_mention", 45))
-                    state.flow_level = min(100, state.flow_level + boost)
-                    triggers.append(f"名字+{boost:.0f}")
-                    break
+        elif persona_name and persona_name in message_text:
+            boost = float(self._cfg.get("flow_boost_mention", 45))
+            state.flow_level = min(100, state.flow_level + boost)
+            triggers.append(f"名字+{boost:.0f}")
 
         for kw in self._all_keywords():
             if str(kw).lower() in message_text.lower():

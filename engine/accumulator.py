@@ -32,11 +32,9 @@ class AccumulationManager:
             logger.debug("累积: @提及触发立即回复")
             return True
 
-        names = [n for n in [persona_name, self._reply_cfg.get("bot_name", "")] if n]
-        for name in names:
-            if name and name in (event.message_str or ""):
-                logger.debug(f"累积: 名字'{name}'触发立即回复")
-                return True
+        if persona_name and persona_name in (event.message_str or ""):
+            logger.debug(f"累积: 名字'{persona_name}'触发立即回复")
+            return True
 
         threshold = int(self._cfg.get("immediate_flow_threshold", 55))
         if flow_level >= threshold:

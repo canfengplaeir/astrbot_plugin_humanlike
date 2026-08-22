@@ -49,7 +49,7 @@ class AIClient:
     # ── prompt helpers ───────────────────────────────────────
 
     def _persona_block(self, system_prompt: str, name: str, short: bool = False) -> str:
-        if not self._re_cfg.get("inherit_persona", True) or not system_prompt:
+        if not system_prompt:
             return f"你的名字是 {name}。\n\n" if name else ""
         if short:
             return (

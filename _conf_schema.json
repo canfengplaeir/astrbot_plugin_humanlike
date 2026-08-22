@@ -28,23 +28,11 @@
         "default": 10,
         "hint": "每次AI生成的关键词数量。推荐5-15个"
       },
-      "inherit_persona": {
-        "description": "继承 AstrBot 人格",
-        "type": "bool",
-        "default": true,
-        "hint": "开启后，插件会读取 AstrBot 人格管理中配置的人格设定（如猫娘、傲娇等），回复和判断都会基于该人设。关闭则仅使用下方提示词。"
-      },
       "enable_ai_judge": {
         "description": "启用AI判断",
         "type": "bool",
         "default": true,
         "hint": "使用LLM判断是否应该回复。关闭则仅根据心流值、随机概率等启发式规则判断"
-      },
-      "bot_name": {
-        "description": "机器人名字（备用）",
-        "type": "string",
-        "default": "",
-        "hint": "当 inherit_persona 关闭或人格未配置名称时，用于@提及检测和回复中的自我称呼"
       },
       "record_conversation": {
         "description": "写入对话历史",
@@ -273,7 +261,7 @@
   "ai_judge_prompt": {
     "description": "AI判断提示词（叠加指令）",
     "type": "text",
-    "hint": "叠加在人格设定之后的附加指令，用于让LLM判断是否该发言。inherit_persona开启时，人格设定会自动出现在此之前。",
+    "hint": "叠加在人格设定之后的附加指令，用于让LLM判断是否该发言。人格设定会自动出现在此之前。",
     "editor_mode": true,
     "editor_language": "plaintext",
     "editor_theme": "vs-dark",
@@ -282,7 +270,7 @@
   "ai_reply_prompt": {
     "description": "AI回复提示词（叠加指令）",
     "type": "text",
-    "hint": "叠加在人格设定之后的附加指令，控制回复的自然度和行为。inherit_persona开启时，人格设定会自动出现在此之前。",
+    "hint": "叠加在人格设定之后的附加指令，控制回复的自然度和行为。人格设定会自动出现在此之前。",
     "editor_mode": true,
     "editor_language": "plaintext",
     "editor_theme": "vs-dark",

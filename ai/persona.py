@@ -7,9 +7,12 @@ _DEFAULT_KEY = "__default__"
 
 
 class PersonaBridge:
-    """人格桥接：从 AstrBot 人格管理器读取当前会话的人格设定。
+    """人格桥接：始终从 AstrBot 人格管理器继承当前会话的人格设定。
 
-    v1.1: 加入 TTL 缓存。旧版在每条群消息上都会调用两次
+    插件完全为增强 AstrBot 自主回复而生：人格（含名字与语气）一律
+    取自 AstrBot 当前选中的默认人格，插件不提供关闭或替代选项。
+
+    带 TTL 缓存：旧版在每条群消息上都会调用两次
     get_default_persona_v3()，高活跃群聊中会产生大量重复的配置读取。
     """
 
@@ -18,13 +21,13 @@ class PersonaBridge:
 
     def __init__(self, context, config):
         self._context = context
-        self._inherit = config.get("reply_engine", {}).get("inherit_persona", True)
         # key -> (fetch_time, persona_dict_or_None)
         self._cache: dict[str, tuple[float, dict | None]] = {}
 
     @property
     def enabled(self) -> bool:
-        return self._inherit
+        """人格继承始终开启。"""
+        return True
 
     def invalidate(self):
         """清空缓存（设置变更或人格被修改后调用）。"""
@@ -46,16 +49,12 @@ class PersonaBridge:
         return persona
 
     async def system_prompt(self, event: AstrMessageEvent) -> str:
-        if not self._inherit:
-            return ""
         p = await self._get(getattr(event, "unified_msg_origin", None))
         if p and p.get("prompt"):
             return str(p["prompt"]).strip()
         return ""
 
     async def name(self, event: AstrMessageEvent) -> str:
-        if not self._inherit:
-            return ""
         p = await self._get(getattr(event, "unified_msg_origin", None))
         if p and p.get("name"):
             return str(p["name"]).strip()
@@ -64,16 +63,12 @@ class PersonaBridge:
     # ── 无事件场景（主动发言等）──────────────────────────────
 
     async def system_prompt_for(self, umo: str | None) -> str:
-        if not self._inherit:
-            return ""
         p = await self._get(umo)
         if p and p.get("prompt"):
             return str(p["prompt"]).strip()
         return ""
 
     async def name_for(self, umo: str | None) -> str:
-        if not self._inherit:
-            return ""
         p = await self._get(umo)
         if p and p.get("name"):
             return str(p["name"]).strip()

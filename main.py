@@ -507,7 +507,7 @@ class HumanLikePlugin(Star):
                 self._record_reply(state, now=time.time(),
                                    persona_name=persona_name)
                 state.append_context(
-                    persona_name or self.config.get("reply_engine", {}).get("bot_name", "bot"),
+                    persona_name or "bot",
                     reply,
                 )
 
@@ -622,7 +622,7 @@ class HumanLikePlugin(Star):
                 self._record_reply(state, now=time.time(),
                                    persona_name=persona_name)
                 state.append_context(
-                    persona_name or self.config.get("reply_engine", {}).get("bot_name", "bot"),
+                    persona_name or "bot",
                     reply,
                 )
 
@@ -750,7 +750,7 @@ class HumanLikePlugin(Star):
                 self._record_reply(state, now=time.time(),
                                    persona_name=persona_name)
                 state.append_context(
-                    persona_name or self.config.get("reply_engine", {}).get("bot_name", "bot"),
+                    persona_name or "bot",
                     text,
                 )
             logger.info(f"[群:{gid}] 主动发言: {text[:40]}")
@@ -1138,8 +1138,6 @@ class HumanLikePlugin(Star):
         self.accum._reply_cfg = self.config.get("reply_engine", {})
         self.ai._re_cfg = self.config.get("reply_engine", {})
         self.ai._cfg = self.config
-        self.persona._inherit = self.config.get("reply_engine", {}).get(
-            "inherit_persona", True)
         self.persona.invalidate()
 
     async def _api_presets(self):

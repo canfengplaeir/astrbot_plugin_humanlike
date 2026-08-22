@@ -127,12 +127,11 @@ td:nth-child(5) { font-weight: 600; }
     <div class="card"><h3>回复引擎</h3>
       <div class="field"><label><span>接管群聊回复</span><input type="checkbox" name="reply_engine.override_group_replies"></label><span class="hint">开启后交给心流引擎判断</span></div>
       <div class="field"><label><span>放行指令</span><input type="checkbox" name="reply_engine.allow_command_pass"></label></div>
-      <div class="field"><label><span>继承人格</span><input type="checkbox" name="reply_engine.inherit_persona"></label></div>
       <div class="field"><label><span>AI判断</span><input type="checkbox" name="reply_engine.enable_ai_judge"></label></div>
       <div class="field"><label><span>记录对话</span><input type="checkbox" name="reply_engine.record_conversation"></label></div>
       <div class="field"><label><span>AI关键词</span><input type="checkbox" name="reply_engine.use_ai_keywords"></label></div>
       <div class="field"><label>关键词数量</label><input type="number" name="reply_engine.keyword_count" min="3" max="30" value="10" class="inp"></div>
-      <div class="field"><label>机器人名字(备用)</label><input type="text" name="reply_engine.bot_name" class="inp"></div>
+      <span class="hint">人格与名字始终继承 AstrBot 当前选中的默认人格</span>
     </div>
     <div class="card"><h3>心流引擎</h3>
       <div class="range-field"><label>回复阈值 <output></output></label><input type="range" name="flow_engine.flow_reply_threshold" min="10" max="80" step="5"></div>
@@ -175,7 +174,7 @@ td:nth-child(5) { font-weight: 600; }
       <div class="field"><label>主动发言超时(秒)</label><input type="number" name="ai_timeout.proactive_seconds" min="5" max="120" class="inp"></div>
     </div>
     <div class="card"><h3>提示词（高级）</h3>
-      <p class="hint">覆盖默认的AI判断与回复指令。inherit_persona 开启时，人格设定会自动出现在提示词之前</p>
+      <p class="hint">覆盖默认的AI判断与回复指令。人格设定会自动出现在提示词之前</p>
       <div class="field"><label>AI判断提示词</label><textarea name="ai_judge_prompt" rows="6" class="inp" style="font-family:inherit;resize:vertical"></textarea></div>
       <div class="field"><label>AI回复提示词</label><textarea name="ai_reply_prompt" rows="6" class="inp" style="font-family:inherit;resize:vertical"></textarea></div>
     </div>
