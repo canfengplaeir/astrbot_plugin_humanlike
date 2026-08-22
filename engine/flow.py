@@ -5,22 +5,28 @@ from astrbot.api.event import AstrMessageEvent
 def is_mentioned(event: AstrMessageEvent) -> bool:
     """跨平台判断机器人是否被 @ 提及（含 @全体成员）。
 
-    优先使用 AstrBot 事件自带的 is_at_or_wake_command（QQ/Telegram/微信等
-    平台适配器均已实现），再回退到手动扫描消息链中的 At 组件（兼容旧版）。
+    组件优先：消息链中出现 At/AtAll 组件时以组件为准——At 命中自己或
+    @全体 → True；At 命中其他成员 → False（即使平台标记
+    is_at_or_wake_command 为 True 也覆盖，防止平台误标）；
+    消息链中无 At 组件时回退平台标记（兼容 Telegram 等不产生标准 At
+    组件的平台）。
     """
-    if getattr(event, "is_at_or_wake_command", False):
-        return True
-
+    msg = getattr(event.message_obj, "message", None) or []
     bot_id = str(getattr(event.message_obj, "self_id", "") or "")
-    for comp in getattr(event.message_obj, "message", None) or []:
+    has_at = False
+    for comp in msg:
         cname = type(comp).__name__
+        if cname == "AtAll":
+            return True
         if cname == "At":
+            has_at = True
             cid = str(getattr(comp, "qq", "") or "")
             if cid == bot_id or cid == "all":
                 return True
-        elif cname == "AtAll":
-            return True
-    return False
+    if has_at:
+        # 有 At 组件但没 @ 自己（@了别人）→ 不算提及
+        return False
+    return getattr(event, "is_at_or_wake_command", False)
 
 
 def is_direct_mention(event: AstrMessageEvent) -> bool:

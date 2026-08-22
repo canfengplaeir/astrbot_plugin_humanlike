@@ -1,10 +1,21 @@
 import asyncio
+import re
 import time
 
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api import logger
 
 from ..engine.flow import is_direct_mention
+
+# 文本形式的 @ 占位符（QQ 官方平台：<@openid> / <@!openid>）
+_TEXT_MENTION_RE = re.compile(r"<@!?([0-9A-Za-z_-]+)>")
+
+# 「@ 归属原则」：固定追加在判断提示词之后，不依赖用户自定义的 ai_judge_prompt
+MENTION_RULE = (
+    "【消息归属】消息中「@了你」才是直接叫你，原则上必须回应；"
+    "「@了其他成员」是群里其他人之间的对话，除非内容明显在等你回应，"
+    "否则不需要理会；「@全体成员」按普通群消息对待。\n"
+)
 
 
 class AIClient:
@@ -96,12 +107,57 @@ class AIClient:
         return ""
 
     @staticmethod
-    def _latest_line(event: AstrMessageEvent) -> str:
-        """构造「最新消息」描述行；单纯 @（无文字）时也能表达清楚。"""
+    def _describe_mention(event: AstrMessageEvent) -> str:
+        """解析消息中的 @ 并生成可读描述，如「@了你」「@了其他成员」「@全体成员」。
+
+        覆盖两种形态：
+        - At 组件（OneBot 系平台等）：按 qq 字段区分 自己/其他成员/全体
+        - 文本 <@openid>（QQ 官方平台）：适配器只移除 @ 自己的文本并转为
+          At 组件，因此残留的 <@...> 一定是 @ 其他成员
+        """
+        parts: list[str] = []
+        msg = getattr(event.message_obj, "message", None) or []
+        bot_id = str(getattr(event.message_obj, "self_id", "") or "")
+        for comp in msg:
+            cname = type(comp).__name__
+            if cname == "AtAll":
+                parts.append("@全体成员")
+            elif cname == "At":
+                cid = str(getattr(comp, "qq", "") or "")
+                if cid == bot_id:
+                    parts.append("@了你")
+                elif cid == "all":
+                    parts.append("@全体成员")
+                else:
+                    parts.append("@了其他成员")
+        text = event.message_str or ""
+        if _TEXT_MENTION_RE.search(text):
+            parts.append("@了其他成员")
+        # 去重保序
+        return "、".join(dict.fromkeys(parts))
+
+    @staticmethod
+    def _clean_text_mentions(text: str) -> str:
+        """移除文本中的 <@openid> 占位符（归属已由 _describe_mention 描述）。"""
+        return _TEXT_MENTION_RE.sub("", text or "").strip()
+
+    @classmethod
+    def _latest_line(cls, event: AstrMessageEvent) -> str:
+        """构造「最新消息」描述行，完整还原 @ 归属，让 AI 分清谁在叫谁。
+
+        示例：
+        - 点名自己：  「枫 @了你：「在吗」」
+        - 点名别人：  「枫 @了其他成员：「在吗」」（含 qq_official 文本形态）
+        - @全体：     「枫 @全体成员：「大家看这个」」
+        - 无 @：      「枫 说：「今晚吃饭吗」」
+        """
         sender = event.get_sender_name() or "某人"
-        text = (event.message_str or "").strip()
-        if is_direct_mention(event):
-            return f"{sender} @了你" + (f"，说：「{text}」" if text else "")
+        text = cls._clean_text_mentions(event.message_str or "")
+        action = cls._describe_mention(event)
+        if action:
+            if text:
+                return f"{sender} {action}：「{text}」"
+            return f"{sender} {action}"
         return f"{sender} 说：「{text}」"
 
     # ── 判断结果解析 ─────────────────────────────────────────
@@ -185,13 +241,20 @@ class AIClient:
 
         try:
             ctx = "\n".join(f"[{m['sender']}]: {m['text']}" for m in context[-6:])
+            latest = self._latest_line(event)
+            logger.debug(
+                f"[AI判断] 消息描述: {latest!r} | "
+                f"direct_mention={is_direct_mention(event)} "
+                f"组件={[type(c).__name__ for c in getattr(event.message_obj, 'message', None) or []]} "
+                f"原文={event.message_str[:60]!r}")
             prompt = (
                 f"{self._persona_block(persona_system_prompt, persona_name, short=True)}"
-                f"{self._judge_instructions()}\n\n"
+                f"{self._judge_instructions()}\n"
+                f"{MENTION_RULE}"
                 f"心流值：{flow_level:.0f}/100\n\n"
                 f"{self._mention_note(event)}"
                 f"最近群聊：\n{ctx or '（暂无）'}\n\n"
-                f"最新消息 — {self._latest_line(event)}\n\n"
+                f"最新消息 — {latest}\n\n"
                 f"请只回复「发言」或「沉默」："
             )
             pid = await self._provider_id(event, for_judge=True)
@@ -226,6 +289,7 @@ class AIClient:
                     persona_name: str = "") -> str:
         try:
             ctx = "\n".join(f"[{m['sender']}]: {m['text']}" for m in context[-8:])
+            logger.debug(f"[AI回复] 消息描述: {self._latest_line(event)!r}")
             prompt = (
                 f"{self._persona_block(persona_system_prompt, persona_name)}"
                 f"【行为指令】\n{self._reply_instructions()}\n\n"
@@ -266,7 +330,8 @@ class AIClient:
             ctx = "\n".join(f"[{m['sender']}]: {m['text']}" for m in context[-10:])
             prompt = (
                 f"{self._persona_block(persona_system_prompt, persona_name, short=True)}"
-                f"{self._judge_instructions()}\n\n"
+                f"{self._judge_instructions()}\n"
+                f"{MENTION_RULE}"
                 f"心流值：{flow_level:.0f}/100\n"
                 f"{self._mention_note(event)}"
                 f"【注意】以下是一段时间内累积的消息，请综合判断是否该参与。\n\n"
