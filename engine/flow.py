@@ -55,19 +55,29 @@ def is_direct_mention(event: AstrMessageEvent) -> bool:
     return getattr(event, "is_at_or_wake_command", False)
 
 
-def is_name_mention(event: AstrMessageEvent, persona_name: str = "") -> bool:
+def is_name_mention(event: AstrMessageEvent, persona_name: str = "",
+                    aliases: list[str] | None = None) -> bool:
     """Detect QQ official's text-form mention when no At component is emitted.
 
     QQ official can render ``@Display Name`` in message text while omitting an
     At component. Only an exact name at the beginning of the message counts,
     avoiding false positives for ordinary text that merely mentions the bot.
     """
-    name = (persona_name or "").strip()
     text = str(getattr(event, "message_str", "") or "").strip()
-    if not name or not text.startswith("@"):
+    if not text.startswith("@"):
         return False
-    pattern = rf"^@\s*{re.escape(name)}(?=\s|$|[，。！？,.!?：:])"
-    return bool(re.match(pattern, text, flags=re.IGNORECASE))
+    if isinstance(aliases, str):
+        aliases = aliases.splitlines()
+    names = [str(x).strip() for x in (aliases or []) if str(x).strip()]
+    # An explicit alias list is authoritative. Fall back to persona name only
+    # when the user has not configured platform display names.
+    if not names and persona_name and persona_name.strip():
+        names.append(persona_name.strip())
+    return any(
+        re.match(rf"^@\s*{re.escape(name)}(?=\s|$|[，。！？,.!?：:])",
+                 text, flags=re.IGNORECASE)
+        for name in names
+    )
 
 
 class FlowEngine:
@@ -138,7 +148,9 @@ class FlowEngine:
 
         triggers = []
 
-        if is_mentioned(event):
+        if is_mentioned(event) or is_name_mention(
+            event, persona_name, self._reply_cfg.get("text_mention_names", [])
+        ):
             boost = float(self._cfg.get("flow_boost_mention", 45))
             state.flow_level = min(100, state.flow_level + boost)
             triggers.append(f"@+{boost:.0f}")

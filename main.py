@@ -306,6 +306,12 @@ class HumanLikePlugin(Star):
     def _override(self) -> bool:
         return self.config.get("reply_engine", {}).get("override_group_replies", True)
 
+    def _text_mention_names(self) -> list[str]:
+        values = self.config.get("reply_engine", {}).get("text_mention_names", [])
+        if isinstance(values, str):
+            values = values.splitlines()
+        return [str(v).strip() for v in (values or []) if str(v).strip()]
+
     def _stop_if_override(self, event: AstrMessageEvent):
         if self._override():
             event.stop_event()
@@ -366,6 +372,8 @@ class HumanLikePlugin(Star):
         )
 
         msg_text = event.message_str or ""
+        # Available before persona lookup; needed for diagnostics and media-only @.
+        mentioned = is_direct_mention(event)
 
         # 排查日志：@ 检测详情（组件形态 / 平台标记 / 文本形态）。
         # 调试模式开启时用 INFO 级别输出——插件日志级别独立于 AstrBot 全局
@@ -407,7 +415,14 @@ class HumanLikePlugin(Star):
         state = await self._get_state(state_key)
         # 被直接点名 → 必定回复：组件 @ 或 QQ 官方文本名称 @
         # 均视为点名；@全体和正文提到名字不算直接点名。
-        mentioned = is_direct_mention(event) or is_name_mention(event, persona_name)
+        mention_names = self._text_mention_names()
+        text_name_mention = is_name_mention(event, persona_name, mention_names)
+        mentioned = mentioned or text_name_mention
+        if cfg.get("reply_engine", {}).get("debug", False):
+            logger.info(
+                f"[调试] [群:{group_id}] 文本名称@={text_name_mention} "
+                f"候选名称={mention_names or ([persona_name] if persona_name else [])}"
+            )
 
         if cfg.get("reply_engine", {}).get("use_ai_keywords", False):
             if (self.flow.has_ai_keywords is False and self._keywords_loaded
@@ -456,7 +471,7 @@ class HumanLikePlugin(Star):
                 )
 
             immediate = self.accum.is_immediate_trigger(
-                event, state.flow_level, persona_name
+                event, state.flow_level, persona_name, mention_names
             )
 
             if immediate and state.reply_in_progress:
@@ -1248,6 +1263,15 @@ class HumanLikePlugin(Star):
         for section in ["reply_engine", "flow_engine", "debounce",
                         "accumulation", "proactive", "ai_timeout"]:
             if section in body and isinstance(body[section], dict):
+                if section == "reply_engine" and "text_mention_names" in body[section]:
+                    names = body[section]["text_mention_names"]
+                    if isinstance(names, str):
+                        names = names.splitlines()
+                    if not isinstance(names, list):
+                        return error_response("text_mention_names 必须是字符串列表")
+                    body[section]["text_mention_names"] = list(dict.fromkeys(
+                        str(name).strip() for name in names if str(name).strip()
+                    ))
                 existing = self.config.get(section, {}) or {}
                 self.config[section] = {**existing, **body[section]}
                 changed = True

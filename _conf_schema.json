@@ -52,6 +52,12 @@
         "type": "bool",
         "default": false,
         "hint": "开启后以 INFO 级别打印 @ 检测详情与发给 AI 的消息描述，便于排查 @ 归属误判。排查完请关闭"
+      },
+      "text_mention_names": {
+        "description": "文本@名称",
+        "type": "list",
+        "default": [],
+        "hint": "QQ官方未提供At组件时使用的机器人显示名，每行一个；填写后以此列表为准，留空时尝试当前人格名称"
       }
     }
   },

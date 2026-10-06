@@ -23,7 +23,8 @@ class AccumulationManager:
         return float(self._cfg.get("silence_threshold", 3))
 
     def is_immediate_trigger(self, event: AstrMessageEvent,
-                             flow_level: float, persona_name: str) -> bool:
+                             flow_level: float, persona_name: str,
+                             mention_names: list[str] | None = None) -> bool:
         """判定是否跳过累积，立即处理。"""
         if not self.enabled:
             return True
@@ -33,7 +34,7 @@ class AccumulationManager:
             return True
 
         if persona_name and (persona_name in (event.message_str or "")
-                             or is_name_mention(event, persona_name)):
+                             or is_name_mention(event, persona_name, mention_names)):
             logger.debug(f"累积: 名字'{persona_name}'触发立即回复")
             return True
 

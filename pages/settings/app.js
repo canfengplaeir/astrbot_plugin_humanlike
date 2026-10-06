@@ -30,6 +30,8 @@ function setVal(path, val) {
   } else if (el.type === "range") {
     el.value = (val != null) ? val : (el.min || 0);
     updateOutput(el);
+  } else if (path === "reply_engine.text_mention_names") {
+    el.value = Array.isArray(val) ? val.join("\n") : (val != null ? val : "");
   } else {
     el.value = (val != null) ? val : "";
   }
@@ -67,7 +69,7 @@ function buildBody() {
     if (parts.length === 2) {
       const [sec, key] = parts;
       sections[sec] = sections[sec] || {};
-      sections[sec][key] = el.type === "checkbox" ? el.checked : (el.type === "range" || el.type === "number" ? parseFloat(el.value) || 0 : el.value);
+      sections[sec][key] = el.type === "checkbox" ? el.checked : (el.type === "range" || el.type === "number" ? parseFloat(el.value) || 0 : (el.name === "reply_engine.text_mention_names" ? el.value.split(/\r?\n/).map(x => x.trim()).filter(Boolean) : el.value));
     } else {
       sections[el.name] = el.type === "checkbox" ? el.checked : el.value;
     }
