@@ -2,21 +2,21 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
-  <title>关键词管理</title>
+  <title>话题偏好</title>
   <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
   <div class="container">
     <div class="page-hd">
-      <h2>关键词管理</h2>
-      <p>机器人会对包含这些词的消息更感兴趣，更愿意参与讨论</p>
+      <h2>话题偏好</h2>
+      <p>偏好作为上下文提示，帮助机器人判断是否适合参与当前讨论</p>
     </div>
 
     <div class="card">
       <h3>手动添加</h3>
-      <p class="hint">手动添加你希望机器人关注的关键词</p>
+      <p class="hint">添加希望机器人关注的话题或短语</p>
       <div class="input-row">
-        <input type="text" id="manualInput" placeholder="输入关键词，回车添加" />
+        <input type="text" id="manualInput" placeholder="输入话题或短语，回车添加" />
         <button class="btn btn-primary" id="addBtn">添加</button>
       </div>
       <div class="tags" id="manualTags"></div>
@@ -27,8 +27,8 @@
     </div>
 
     <div class="card">
-      <h3>AI 生成</h3>
-      <p class="hint">选择人格，AI 根据该人格设定自动生成相关话题关键词</p>
+      <h3>AI 生成话题</h3>
+      <p class="hint">选择人格，AI 根据人格设定生成相关话题偏好</p>
       <div class="input-row">
         <select id="personaSelect"><option value="">加载中...</option></select>
         <button class="btn btn-primary" id="genBtn">生成</button>
@@ -42,8 +42,8 @@
     </div>
 
     <div class="card">
-      <h3>关键词测试</h3>
-      <p class="hint">输入一段消息，查看会匹配到哪些关键词</p>
+      <h3>匹配预览</h3>
+      <p class="hint">输入一段消息，查看会命中哪些话题偏好</p>
       <div class="input-row">
         <input type="text" id="testInput" placeholder="输入测试消息..." />
         <button class="btn btn-primary" id="testBtn">测试</button>

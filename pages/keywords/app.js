@@ -26,7 +26,7 @@ async function loadKeywords() {
 function renderManual(keywords) {
   manualCount.textContent = keywords.length ? `共 ${keywords.length} 个` : "";
   clearManual.style.display = keywords.length ? "" : "none";
-  if (!keywords.length) { manualTags.innerHTML = '<span class="empty-msg">暂无手动关键词</span>'; return; }
+  if (!keywords.length) { manualTags.innerHTML = '<span class="empty-msg">暂无手动话题偏好</span>'; return; }
   manualTags.innerHTML = keywords.map(kw =>
     `<span class="tag manual">${esc(kw)}<button class="tag-del" data-kw="${escAttr(kw)}" data-type="manual">×</button></span>`
   ).join("");
@@ -72,7 +72,7 @@ genBtn.onclick = async () => {
   try {
     const result = await bridge.apiPost("keywords/generate", { persona_id: personaSelect.value });
     if (result.ok && result.keywords) {
-      genStatus.textContent = `已生成 ${result.keywords.length} 个关键词`;
+      genStatus.textContent = `已生成 ${result.keywords.length} 个话题偏好`;
       genStatus.className = "status-line success";
     } else {
       genStatus.textContent = "生成失败";
@@ -110,7 +110,7 @@ testBtn.onclick = async () => {
       testResult.className = "status-line success";
       testResult.innerHTML = testResult.textContent.replace(/&lt;b&gt;/g, "<b>").replace(/&lt;\/b&gt;/g, "</b>");
     } else {
-      testResult.textContent = `无匹配 (共 ${total_keywords} 个关键词)`;
+      testResult.textContent = `无匹配 (共 ${total_keywords} 个话题偏好)`;
       testResult.className = "status-line";
     }
   } catch {

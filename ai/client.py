@@ -25,6 +25,17 @@ class AIClient:
         self._ctx = context
         self._cfg = config
         self._re_cfg = config.get("reply_engine", {})
+        self._ai_topics: list[str] = []
+
+    def set_ai_topics(self, topics: list[str] | None):
+        """Update generated topic preferences without writing them to config."""
+        seen = set()
+        self._ai_topics = []
+        for value in topics or []:
+            text = str(value).strip()
+            if text and text.casefold() not in seen:
+                seen.add(text.casefold())
+                self._ai_topics.append(text)
 
     # ── provider ─────────────────────────────────────────────
 
@@ -44,10 +55,14 @@ class AIClient:
 
     def _timeout(self, kind: str, default: float) -> float:
         try:
-            return float(self._cfg.get("ai_timeout", {}).get(f"{kind}_seconds",
-                                                             default))
+            # A non-positive timeout makes asyncio.wait_for fail immediately;
+            # clamp malformed dashboard values to a small useful interval.
+            value = float(self._cfg.get("ai_timeout", {}).get(
+                f"{kind}_seconds", default
+            ))
+            return max(0.5, value)
         except (TypeError, ValueError):
-            return default
+            return max(0.5, float(default))
 
     async def _llm(self, pid: str, prompt: str, timeout: float) -> str:
         """带超时地调用 LLM，返回文本；失败返回空串。"""
@@ -95,6 +110,26 @@ class AIClient:
     def _flow_threshold(self) -> float:
         return float(self._cfg.get("flow_engine", {}).get(
             "flow_reply_threshold", 20))
+
+    def _topic_hint(self) -> str:
+        """Expose configured topic preferences as context, not a reply command."""
+        manual = self._cfg.get("interest_keywords", []) or []
+        topics = []
+        seen = set()
+        for value in manual:
+            text = str(value).strip()
+            if text and text.casefold() not in seen:
+                seen.add(text.casefold())
+                topics.append(text)
+        if self._re_cfg.get("use_ai_keywords", False):
+            for text in self._ai_topics:
+                if text.casefold() not in seen:
+                    seen.add(text.casefold())
+                    topics.append(text)
+        if len(topics) > 20:
+            topics = topics[:20]
+        return ("【话题偏好】这些只是机器人可能感兴趣的方向，只有在当前上下文确实相关时才参考："
+                + "、".join(topics) + "\n") if topics else ""
 
     @staticmethod
     def _mention_note(event: AstrMessageEvent) -> str:
@@ -266,6 +301,7 @@ class AIClient:
                 f"{self._persona_block(persona_system_prompt, persona_name, short=True)}"
                 f"{self._judge_instructions()}\n"
                 f"{MENTION_RULE}"
+                f"{self._topic_hint()}"
                 f"心流值：{flow_level:.0f}/100\n\n"
                 f"{self._mention_note(event)}"
                 f"最近群聊：\n{ctx or '（暂无）'}\n\n"
@@ -351,6 +387,7 @@ class AIClient:
                 f"{self._persona_block(persona_system_prompt, persona_name, short=True)}"
                 f"{self._judge_instructions()}\n"
                 f"{MENTION_RULE}"
+                f"{self._topic_hint()}"
                 f"心流值：{flow_level:.0f}/100\n"
                 f"{self._mention_note(event)}"
                 f"【注意】以下是一段时间内累积的消息，请综合判断是否该参与。\n\n"
@@ -495,12 +532,22 @@ class AIClient:
                                    self._timeout("keywords", 60))
             elapsed = (time.time() - t0) * 1000
             logger.info(f"LLM 返回 ({elapsed:.0f}ms): {text[:100]}")
-            keywords = [
-                line.strip().lstrip("0123456789.、-•· ") for line in text.split("\n")
-                if line.strip()
-            ]
-            keywords = [kw for kw in keywords if len(kw) <= 8]
-            keywords = keywords[:count]
+            # Models often wrap the list in a fenced block or separate items
+            # with commas. Normalize those variants and deduplicate while
+            # preserving order so matching remains predictable.
+            candidates = re.split(r"[\n,，、；;]+", text.replace("```", ""))
+            keywords = []
+            seen = set()
+            for item in candidates:
+                kw = re.sub(
+                    r"^\s*(?:[-*•·]|\d+[.)、])\s*", "", item
+                ).strip(" `\"'“”‘’")
+                if not kw or len(kw) > 8 or kw.lower() in seen:
+                    continue
+                seen.add(kw.lower())
+                keywords.append(kw)
+                if len(keywords) >= count:
+                    break
             logger.info(f"AI生成关键词 ({len(keywords)}个): {keywords[:10]}")
             return keywords
         except asyncio.TimeoutError:

@@ -5,7 +5,7 @@
   <title>拟人化群聊助手</title>
   <style>
 :root {
-  --bg: #fef9f0; --paper: #fffdf7; --charcoal: #3d3629; --muted: #8a7e6e; --faint: #e6ddd0;
+  --bg: #f7f3ed; --cream: #fffaf3; --paper: rgba(255,253,247,0.94); --charcoal: #3d3629; --muted: #8a7e6e; --faint: #e6ddd0;
   --amber: #c17a3a; --amber-light: #f5e6d3; --sage: #7a9a6e; --sage-light: #e8f0e3;
   --terracotta: #c15b3b; --terracotta-light: #fce8e2; --side-bg: #f5efe4; --radius: 12px; --radius-sm: 8px;
 }
@@ -102,6 +102,61 @@ td:nth-child(5) { font-weight: 600; }
 
 .refresh-row { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
 .auto-refresh { font-size: 12px; color: var(--muted); }
+
+/* Visual polish */
+body {
+  background:
+    radial-gradient(circle at 92% 0%, rgba(193,122,58,.13), transparent 28rem),
+    radial-gradient(circle at 0% 100%, rgba(122,154,110,.10), transparent 24rem),
+    var(--bg);
+}
+.sidebar {
+  position: sticky; top: 0; height: 100vh; padding: 28px 12px;
+  background: linear-gradient(180deg, rgba(255,253,247,.94), rgba(245,239,228,.86));
+  box-shadow: 8px 0 28px rgba(61,54,41,.05); z-index: 2;
+}
+.sidebar h3 { padding: 4px 14px 22px; border-bottom: 0; font-size: 16px; }
+.sidebar h3::after { content: "AI 群聊参与助手"; display:block; margin-top:5px; font-size:11px; font-weight:400; letter-spacing:.02em; color:var(--muted); }
+.sidebar a { position:relative; margin: 5px 0; border-radius: 10px; padding: 11px 14px; }
+.sidebar a:hover { background: rgba(193,122,58,.08); }
+.sidebar a.active { box-shadow: inset 3px 0 0 var(--amber), 0 4px 12px rgba(193,122,58,.08); }
+.content { width: min(100%, 1180px); padding: 38px clamp(22px, 4vw, 58px) 56px; }
+.tab.active { animation: tabIn .24s ease-out; }
+@keyframes tabIn { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:none; } }
+h2 { font-size: clamp(24px, 3vw, 30px); font-weight: 700; }
+.subtitle { max-width: 720px; margin-bottom: 28px; }
+.card { border-color: rgba(230,221,208,.9); box-shadow: 0 8px 24px rgba(61,54,41,.045); }
+.card:hover { box-shadow: 0 12px 30px rgba(61,54,41,.08); transform: translateY(-1px); transition: transform .18s, box-shadow .18s; }
+.card h3 { font-size: 16px; letter-spacing: -.01em; }
+.card h3:first-letter { color: var(--amber); }
+.field, .range-field { padding: 5px 0; }
+.field + .field, .range-field + .range-field { border-top: 1px solid rgba(230,221,208,.55); }
+.inp, .input-row input, .input-row select { background: var(--cream); }
+.btn { box-shadow: 0 3px 8px rgba(61,54,41,.08); }
+.btn:focus-visible, .sidebar a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid rgba(193,122,58,.28); outline-offset: 2px; }
+.btn-primary { background: linear-gradient(135deg, var(--amber), #aa6330); }
+.btn-primary:hover { background: linear-gradient(135deg, var(--terracotta), #a84931); transform: translateY(-1px); }
+.meta-bar { padding: 10px 14px; border: 1px solid var(--faint); border-radius: 10px; background: rgba(255,253,247,.58); width: fit-content; }
+.flow-bar-wrap { height: 9px; box-shadow: inset 0 1px 2px rgba(0,0,0,.08); }
+table { min-width: 820px; }
+tbody tr { transition: background .15s; }
+tbody tr:hover { background: rgba(193,122,58,.055); }
+tbody td small { display:block; color:var(--muted); font-weight:400; font-size:11px; white-space:nowrap; }
+.card:has(table) { overflow-x: auto; }
+.empty-msg { padding: 18px 4px; text-align:center; }
+
+@media (max-width: 760px) {
+  body { display:block; }
+  .sidebar { position:sticky; top:0; width:100%; height:auto; padding:10px 12px; display:flex; align-items:center; gap:5px; overflow-x:auto; }
+  .sidebar h3 { min-width:max-content; padding:8px 10px; margin-right:5px; }
+  .sidebar h3::after { display:none; }
+  .sidebar a { white-space:nowrap; margin:0; padding:9px 12px; }
+  .content { padding:26px 14px 42px; }
+  .input-row { flex-wrap:wrap; }
+  .input-row .btn { width:100%; justify-content:center; }
+  .actions { flex-wrap:wrap; }
+  .meta-bar { width:100%; flex-wrap:wrap; }
+}
   </style>
 </head>
 <body>
@@ -109,7 +164,7 @@ td:nth-child(5) { font-weight: 600; }
 <nav class="sidebar">
   <h3>拟人化助手</h3>
   <a data-tab="settings" class="active">⚙️ 插件设置</a>
-  <a data-tab="keywords">🏷️ 关键词</a>
+  <a data-tab="keywords">🏷️ 话题偏好</a>
   <a data-tab="status">📊 状态面板</a>
 </nav>
 
@@ -129,9 +184,9 @@ td:nth-child(5) { font-weight: 600; }
       <div class="field"><label><span>放行指令</span><input type="checkbox" name="reply_engine.allow_command_pass"></label></div>
       <div class="field"><label><span>AI判断</span><input type="checkbox" name="reply_engine.enable_ai_judge"></label></div>
       <div class="field"><label><span>记录对话</span><input type="checkbox" name="reply_engine.record_conversation"></label></div>
-      <div class="field"><label><span>AI关键词</span><input type="checkbox" name="reply_engine.use_ai_keywords"></label></div>
+      <div class="field"><label><span>AI话题偏好</span><input type="checkbox" name="reply_engine.use_ai_keywords"></label></div>
       <div class="field"><label><span>调试模式</span><input type="checkbox" name="reply_engine.debug"></label><span class="hint">INFO级打印 @ 检测与消息描述，排查 @ 归属误判用，排查完请关闭</span></div>
-      <div class="field"><label>关键词数量</label><input type="number" name="reply_engine.keyword_count" min="3" max="30" value="10" class="inp"></div>
+      <div class="field"><label>话题偏好数量</label><input type="number" name="reply_engine.keyword_count" min="3" max="30" value="10" class="inp"></div>
       <span class="hint">人格与名字始终继承 AstrBot 当前选中的默认人格</span>
     </div>
     <div class="card"><h3>心流引擎</h3>
@@ -139,7 +194,8 @@ td:nth-child(5) { font-weight: 600; }
       <div class="range-field"><label>衰减速度 <output></output></label><input type="range" name="flow_engine.flow_decay_rate" min="0.01" max="1" step="0.01"></div>
       <div class="field"><label>初始心流</label><input type="number" name="flow_engine.initial_flow" min="0" max="100" class="inp"></div>
       <div class="range-field"><label>@提及加成 <output></output></label><input type="range" name="flow_engine.flow_boost_mention" min="10" max="60" step="5"></div>
-      <div class="range-field"><label>关键词加成 <output></output></label><input type="range" name="flow_engine.flow_boost_keyword" min="5" max="40" step="5"></div>
+      <div class="range-field"><label>话题偏好加成 <output></output></label><input type="range" name="flow_engine.flow_boost_keyword" min="5" max="40" step="5"></div>
+      <div class="field"><label><span>本地话题加成</span><input type="checkbox" name="flow_engine.keyword_boost_enabled"></label><span class="hint">关闭时话题偏好只辅助 AI 判断，不会单独抬高心流</span></div>
       <div class="range-field"><label>问句加成 <output></output></label><input type="range" name="flow_engine.flow_boost_question" min="5" max="40" step="5"></div>
       <div class="range-field"><label>活跃加成 <output></output></label><input type="range" name="flow_engine.flow_boost_activity" min="1" max="15" step="1"></div>
       <div class="range-field"><label>发言后衰减 <output></output></label><input type="range" name="flow_engine.flow_decay_on_reply" min="5" max="50" step="5"></div>
@@ -171,7 +227,7 @@ td:nth-child(5) { font-weight: 600; }
       <div class="field"><label>AI判断专用模型</label><select name="reply_engine.judge_provider_id" class="inp" id="judgeProvider"><option value="">加载中...</option></select><span class="hint">指定发言/沉默判断用的模型，留空使用默认聊天模型。推荐便宜快速的模型以降低成本</span></div>
       <div class="field"><label>判断超时(秒)</label><input type="number" name="ai_timeout.judge_seconds" min="5" max="120" class="inp"></div>
       <div class="field"><label>回复超时(秒)</label><input type="number" name="ai_timeout.reply_seconds" min="10" max="180" class="inp"></div>
-      <div class="field"><label>关键词生成超时(秒)</label><input type="number" name="ai_timeout.keywords_seconds" min="10" max="180" class="inp"></div>
+      <div class="field"><label>话题生成超时(秒)</label><input type="number" name="ai_timeout.keywords_seconds" min="10" max="180" class="inp"></div>
       <div class="field"><label>主动发言超时(秒)</label><input type="number" name="ai_timeout.proactive_seconds" min="5" max="120" class="inp"></div>
     </div>
     <div class="card"><h3>提示词（高级）</h3>
@@ -185,21 +241,21 @@ td:nth-child(5) { font-weight: 600; }
 
 <!-- ====== KEYWORDS ====== -->
 <div class="tab" id="tab-keywords">
-  <h2>关键词管理</h2>
-  <p class="subtitle">机器人会对包含这些词的消息更感兴趣</p>
+  <h2>话题偏好</h2>
+  <p class="subtitle">这些偏好只作为上下文提示，帮助机器人判断是否适合参与当前讨论</p>
   <div class="card"><h3>手动添加</h3>
-    <div class="input-row"><input type="text" id="manualInput" placeholder="输入关键词，回车添加"><button class="btn btn-primary" id="addBtn">添加</button></div>
+    <div class="input-row"><input type="text" id="manualInput" placeholder="输入话题或短语，回车添加"><button class="btn btn-primary" id="addBtn">添加</button></div>
     <div class="tags" id="manualTags"></div>
     <div class="actions"><button class="btn-ghost" id="clearManual">清空手动</button><span style="font-size:12px;color:var(--muted)" id="manualCount"></span></div>
   </div>
-  <div class="card"><h3>AI生成</h3>
+  <div class="card"><h3>AI生成话题</h3>
     <div class="input-row"><select id="personaSelect" class="inp" style="flex:1"><option value="">加载中...</option></select><button class="btn btn-primary" id="genBtn">生成</button></div>
     <div class="tags" id="aiTags"></div>
     <div class="actions"><button class="btn-ghost" id="clearAi">清空AI</button><span style="font-size:12px;color:var(--muted)" id="aiCount"></span></div>
     <div class="status-line" id="genStatus"></div>
   </div>
-  <div class="card"><h3>测试</h3>
-    <div class="input-row"><input type="text" id="testInput" placeholder="输入测试消息..."><button class="btn btn-primary" id="testBtn">测试</button></div>
+  <div class="card"><h3>匹配预览</h3>
+    <div class="input-row"><input type="text" id="testInput" placeholder="输入消息，查看命中的话题偏好"><button class="btn btn-primary" id="testBtn">测试</button></div>
     <div class="status-line" id="testResult"></div>
   </div>
 </div>
@@ -210,7 +266,7 @@ td:nth-child(5) { font-weight: 600; }
   <p class="subtitle">各群聊心流状态与发言统计</p>
   <div class="meta-bar" id="metaBar"></div>
   <div class="card" style="margin-top:16px">
-    <table><thead><tr><th>群聊</th><th style="width:200px">心流</th><th>上次发言</th><th>最近消息</th><th>窗口</th><th>缓冲</th></tr></thead>
+    <table><thead><tr><th>群聊</th><th style="width:200px">心流</th><th>上次发言</th><th>最近消息</th><th>最近决策</th><th>窗口</th><th>缓冲</th></tr></thead>
       <tbody id="groupTable"></tbody>
     </table>
     <div class="empty-msg" id="emptyMsg">尚无群聊数据</div>
@@ -382,7 +438,7 @@ cm.onclick = async () => { await bridge.apiPost('keywords/clear',{target:'manual
 ca.onclick = async () => { await bridge.apiPost('keywords/clear',{target:'ai'}); loadKw(); };
 tb.onclick = async () => {
   const t = ti.value.trim(); if(!t) return;
-  try { const {hits,total_keywords} = await bridge.apiPost('keywords/test',{text:t}); tr.innerHTML = hits.length ? `匹配 ${hits.length}/${total_keywords}: ` + hits.map(k => `<b>${esc(k)}</b>`).join('、') : `无匹配 (${total_keywords}个关键词)`; }
+  try { const {hits,total_keywords} = await bridge.apiPost('keywords/test',{text:t}); tr.innerHTML = hits.length ? `命中 ${hits.length}/${total_keywords}: ` + hits.map(k => `<b>${esc(k)}</b>`).join('、') : `无命中 (${total_keywords}个话题偏好)`; }
   catch { tr.textContent = '测试失败'; }
 };
 ti.onkeydown = e => { if(e.key==='Enter') tb.click(); };
@@ -402,7 +458,11 @@ async function loadStatus() {
     metaBar.innerHTML = `<span><span class="meta-dot"></span>接管${d.override?'开':'关'}</span><span><span class="meta-dot${d.accum_enabled?'':' off'}"></span>累积${d.accum_enabled?'开':'关'}</span><span><span class="meta-dot${d.proactive_enabled?'':' off'}"></span>主动发言${d.proactive_enabled?'开':'关'}</span>`;
     if(!d.groups||!d.groups.length){ tbl.innerHTML=''; emp.style.display='block'; emp.textContent='尚无群聊数据'; return; }
     emp.style.display='none';
-    tbl.innerHTML = d.groups.map(g => `<tr><td>${g.group_id}</td><td><div class="flow-row"><div class="flow-bar-wrap"><div class="flow-bar-fill ${fc(g.flow)}" style="width:${Math.min(100,g.flow)}%"></div></div><span class="flow-val">${g.flow.toFixed(0)}</span></div></td><td>${ago(g.last_reply_ago)}</td><td>${ago(g.last_msg_ago)}</td><td>${g.recent_replies}</td><td style="color:${g.pending>0?'var(--terracotta)':''}">${g.pending>0?'● '+g.pending:'—'}</td></tr>`).join('');
+    tbl.innerHTML = d.groups.map(g => {
+      const decision = g.last_decision ? `${esc(g.last_decision)}${g.last_decision_detail ? ` · ${esc(g.last_decision_detail)}` : ''}` : '暂无决策记录';
+      const decisionAge = g.last_decision_ago >= 0 ? ` <small>(${ago(g.last_decision_ago)}前)</small>` : '';
+      return `<tr><td>${esc(g.group_id)}</td><td><div class="flow-row"><div class="flow-bar-wrap"><div class="flow-bar-fill ${fc(g.flow)}" style="width:${Math.min(100,g.flow)}%"></div></div><span class="flow-val">${g.flow.toFixed(0)}</span></div></td><td>${ago(g.last_reply_ago)}</td><td>${ago(g.last_msg_ago)}</td><td>${decision}${decisionAge}</td><td>${g.recent_replies}</td><td style="color:${g.pending>0?'var(--terracotta)':''}">${g.pending>0?'● '+g.pending:'—'}</td></tr>`;
+    }).join('');
   } catch { emp.style.display='block'; emp.textContent='加载失败'; }
 }
 function startTimer() { timer=10; al.textContent=timer+'s'; clearInterval(interval); interval=setInterval(()=>{ timer--; al.textContent=timer+'s'; if(timer<=0){ loadStatus(); startTimer(); } },1000); }

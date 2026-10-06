@@ -182,6 +182,7 @@ class HumanLikePlugin(Star):
         self._keywords_loaded = False
         self._keywords_generating = False
         self._proactive_task = None
+        self._background_tasks: set[asyncio.Task] = set()
 
         context.register_web_api(
             f"/{PLUGIN_NAME}/keywords/list", self._api_kw_list, ["GET"], "关键词列表")
@@ -218,7 +219,7 @@ class HumanLikePlugin(Star):
 
     async def initialize(self):
         """插件激活时启动后台任务。"""
-        self._proactive_task = asyncio.ensure_future(self._proactive_loop())
+        self._proactive_task = self._spawn_task(self._proactive_loop())
         await self._init_keywords()
 
     async def terminate(self):
@@ -226,18 +227,22 @@ class HumanLikePlugin(Star):
         if self._proactive_task:
             self._proactive_task.cancel()
             self._proactive_task = None
+        for task in tuple(self._background_tasks):
+            task.cancel()
+        self._background_tasks.clear()
         for s in self._states.values():
             self.accum.cancel_timer(s)
         self._states.clear()
 
     async def _init_keywords(self):
         if not self.config.get("reply_engine", {}).get("use_ai_keywords", False):
-            logger.info("AI关键词生成未启用")
+            logger.info("AI话题偏好生成未启用")
             return
         try:
             saved = await self.get_kv_data("ai_keywords", None)
             if saved and isinstance(saved, list) and len(saved) > 0:
                 self.flow.set_ai_keywords(saved)
+                self.ai.set_ai_topics(saved)
                 logger.info(f"已加载 {len(saved)} 个AI生成关键词")
             else:
                 logger.info("无已保存的AI关键词，将在首次消息时自动生成")
@@ -262,6 +267,7 @@ class HumanLikePlugin(Star):
                 event, persona_prompt, persona_name, count)
             if keywords:
                 self.flow.set_ai_keywords(keywords)
+                self.ai.set_ai_topics(keywords)
                 await self.put_kv_data("ai_keywords", keywords)
                 logger.info(f"AI生成并保存 {len(keywords)} 个关键词")
             return keywords
@@ -275,15 +281,27 @@ class HumanLikePlugin(Star):
     # 状态管理
     # ============================================================
 
-    async def _get_state(self, group_id: str) -> GroupState:
+    @staticmethod
+    def _state_key(event: AstrMessageEvent) -> str:
+        """Use the full session origin to avoid cross-platform ID collisions."""
+        return str(getattr(event, "unified_msg_origin", "") or
+                   f"group:{getattr(event.message_obj, 'group_id', '')}")
+
+    def _spawn_task(self, coro):
+        task = asyncio.create_task(coro)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        return task
+
+    async def _get_state(self, state_key: str) -> GroupState:
         async with self._lock:
-            if group_id not in self._states:
+            if state_key not in self._states:
                 init = float(self.config.get("flow_engine", {}).get("initial_flow", 50))
-                self._states[group_id] = GroupState(
+                self._states[state_key] = GroupState(
                     flow_level=init,
                     last_update_time=time.time(),
                 )
-            return self._states[group_id]
+            return self._states[state_key]
 
     def _override(self) -> bool:
         return self.config.get("reply_engine", {}).get("override_group_replies", True)
@@ -299,11 +317,17 @@ class HumanLikePlugin(Star):
         避免接管模式下吞掉其他插件的指令。
         """
         try:
-            prefixes = (self.context.get_config().get("provider_settings", {})
-                        or {}).get("wake_prefix", ["/"])
+            # AstrBot 4.x stores this at the root of the global config. Keep
+            # the nested lookup as a compatibility fallback for older builds.
+            global_config = self.context.get_config() or {}
+            prefixes = global_config.get("wake_prefix")
+            if prefixes is None:
+                prefixes = (global_config.get("provider_settings", {}) or {}).get(
+                    "wake_prefix", ["/"]
+                )
             if isinstance(prefixes, str):
                 prefixes = [prefixes]
-            result = [str(p) for p in prefixes if p]
+            result = list(dict.fromkeys(str(p).strip() for p in (prefixes or []) if str(p).strip()))
             return result or ["/"]
         except Exception:
             return ["/"]
@@ -341,7 +365,8 @@ class HumanLikePlugin(Star):
             f"{event.get_sender_name()}({sender_id}) | {msg_preview}"
         )
 
-        state = await self._get_state(group_id)
+        state_key = self._state_key(event)
+        state = await self._get_state(state_key)
         # 被直接点名 → 必定回复：跳过 AI 判断与防抖（@全体不算点名）
         mentioned = is_direct_mention(event)
         msg_text = event.message_str or ""
@@ -385,7 +410,7 @@ class HumanLikePlugin(Star):
         if cfg.get("reply_engine", {}).get("use_ai_keywords", False):
             if (self.flow.has_ai_keywords is False and self._keywords_loaded
                     and not self._keywords_generating):
-                asyncio.ensure_future(self._gen_and_save_keywords(event))
+                self._spawn_task(self._gen_and_save_keywords(event))
 
         now = time.time()
 
@@ -456,6 +481,7 @@ class HumanLikePlugin(Star):
                 state.append_context(event.get_sender_name() or "未知", ctx_text)
                 if not mentioned and not self.debounce.check(state, now):
                     logger.debug(f"[群:{group_id}] 防抖拦截（立即触发但频率受限）")
+                    self._record_decision(state, "沉默", "防抖/频率限制")
                     self._stop_if_override(event)
                     return
 
@@ -470,18 +496,19 @@ class HumanLikePlugin(Star):
                                              event.get_sender_name() or "未知")
                     state.retry_count = 0
                     self.accum.cancel_timer(state)
-                    await self.accum.start_timer(group_id, state,
+                    await self.accum.start_timer(state_key, state,
                                                  self._on_silence_timeout)
                     if self.config.get("reply_engine", {}).get("debug", False):
                         logger.info(
                             f"[调试] [群:{group_id}] 已缓冲第{len(state.pending_messages)}条"
                             f"（静默{self.accum.silence_threshold():.0f}s后批处理）"
                         )
+                    self._record_decision(state, "等待", "消息累积中")
 
                     if self.accum.should_force_process(state):
                         logger.debug(f"[群:{group_id}] 累积缓冲满，立即处理")
                         self.accum.cancel_timer(state)
-                        asyncio.ensure_future(self._run_batch_pipeline(group_id))
+                        self._spawn_task(self._run_batch_pipeline(state_key))
 
                     logger.debug(
                         f"[群:{group_id}] 累积: 缓冲({len(state.pending_messages)}条, "
@@ -492,6 +519,7 @@ class HumanLikePlugin(Star):
                                          ctx_text)
                     if not mentioned and not self.debounce.check(state, now):
                         logger.debug(f"[群:{group_id}] 防抖拦截")
+                        self._record_decision(state, "沉默", "防抖/频率限制")
                         self._stop_if_override(event)
                         return
                     flow_snap = state.flow_level
@@ -519,6 +547,8 @@ class HumanLikePlugin(Star):
                 if not await self.ai.judge(event, flow_snap, ctx_snap,
                                             persona_prompt, persona_name):
                     logger.info("AI判断 → 沉默")
+                    async with state.lock:
+                        self._record_decision(state, "沉默", "AI判断为沉默")
                     self._stop_if_override(event)
                     return
 
@@ -527,6 +557,8 @@ class HumanLikePlugin(Star):
                                          persona_prompt, persona_name)
             if not reply:
                 logger.warning("回复生成失败（空内容）")
+                async with state.lock:
+                    self._record_decision(state, "失败", "回复生成为空")
                 self._stop_if_override(event)
                 return
 
@@ -544,6 +576,9 @@ class HumanLikePlugin(Star):
             async with state.lock:
                 self._record_reply(state, now=time.time(),
                                    persona_name=persona_name)
+                self._record_decision(
+                    state, "回复", "被@直接回复" if mentioned else "AI判断通过"
+                )
                 state.append_context(
                     persona_name or "bot",
                     reply,
@@ -570,7 +605,7 @@ class HumanLikePlugin(Star):
             await self._run_batch_pipeline(group_id)
 
         self.accum.cancel_timer(state)
-        state.silence_timer = asyncio.ensure_future(_retry())
+        state.silence_timer = self._spawn_task(_retry())
 
     async def _run_batch_pipeline(self, group_id: str):
         state = await self._get_state(group_id)
@@ -651,6 +686,8 @@ class HumanLikePlugin(Star):
             elif not await self.ai.judge_batch(last_event, flow_snap, ctx_list,
                                                 persona_prompt, persona_name):
                 logger.info(f"[群:{group_id}] 批处理: AI判断→沉默")
+                async with state.lock:
+                    self._record_decision(state, "沉默", "批量AI判断为沉默")
                 return
 
             logger.info(f"[群:{group_id}] 批处理: AI判断→发言 → 生成...")
@@ -658,19 +695,30 @@ class HumanLikePlugin(Star):
                                                persona_prompt, persona_name)
             if not reply:
                 logger.warning(f"[群:{group_id}] 批处理: 回复生成失败")
+                async with state.lock:
+                    self._record_decision(state, "失败", "批量回复生成为空")
                 return
 
             logger.info(f"[群:{group_id}] 批处理: 回复完毕 ({len(reply)}字) | 预览={reply[:40]}")
 
+            try:
+                await last_event.send(last_event.plain_result(reply))
+            except Exception as e:
+                logger.warning(f"[群:{group_id}] 批处理回复发送失败: {e}")
+                if self._override():
+                    last_event.stop_event()
+                return
+
             async with state.lock:
                 self._record_reply(state, now=time.time(),
                                    persona_name=persona_name)
+                self._record_decision(
+                    state, "回复", "被@直接回复" if mentioned else "批量AI判断通过"
+                )
                 state.append_context(
                     persona_name or "bot",
                     reply,
                 )
-
-            await last_event.send(last_event.plain_result(reply))
 
             combined_user = " | ".join([m["text"] for m in pending])
             await self._write_history(last_event, reply, user_message=combined_user)
@@ -732,18 +780,22 @@ class HumanLikePlugin(Star):
         min_flow = float(pc.get("min_flow", 40))
         max_per_day = int(pc.get("max_per_day", 3))
 
-        if not state.unified_msg_origin:
-            return
-        if now - state.last_msg_time < idle_min * 60:
-            return
-        if state.proactive_timestamps:
-            if now - state.proactive_timestamps[-1] < cooldown_min * 60:
+        async with state.lock:
+            # Natural decay must continue during silence; otherwise a busy
+            # period could leave the flow artificially high for hours.
+            self.flow.decay(state, now)
+            if not state.unified_msg_origin:
                 return
-        recent = [t for t in state.proactive_timestamps if now - t < 86400]
-        if len(recent) >= max_per_day:
-            return
-        if state.flow_level < min_flow:
-            return
+            if now - state.last_msg_time < idle_min * 60:
+                return
+            if state.proactive_timestamps:
+                if now - state.proactive_timestamps[-1] < cooldown_min * 60:
+                    return
+            recent = [t for t in state.proactive_timestamps if now - t < 86400]
+            if len(recent) >= max_per_day:
+                return
+            if state.flow_level < min_flow:
+                return
 
         async with state.lock:
             if state.pipeline_running:
@@ -793,6 +845,7 @@ class HumanLikePlugin(Star):
                 ]
                 self._record_reply(state, now=time.time(),
                                    persona_name=persona_name)
+                self._record_decision(state, "主动发言", "冷场主动话题")
                 state.append_context(
                     persona_name or "bot",
                     text,
@@ -817,6 +870,12 @@ class HumanLikePlugin(Star):
         # 机器人发言后，同人连续发言计数归零（新的一轮）
         state.same_speaker_count = 0
         logger.debug(f"发言后心流 {old:.1f} → {state.flow_level:.1f}")
+
+    @staticmethod
+    def _record_decision(state: GroupState, decision: str, detail: str = ""):
+        state.last_decision = decision
+        state.last_decision_detail = detail
+        state.last_decision_time = time.time()
 
     async def _write_history(self, event: AstrMessageEvent, reply: str,
                              user_message: str = None):
@@ -855,8 +914,9 @@ class HumanLikePlugin(Star):
             yield event.plain_result("请在群聊中使用")
             return
 
-        s = await self._get_state(gid)
+        s = await self._get_state(self._state_key(event))
         async with s.lock:
+            self.flow.decay(s, time.time())
             flow = s.flow_level
             last = s.last_reply_time
             now = time.time()
@@ -893,10 +953,11 @@ class HumanLikePlugin(Star):
             return
         async with self._lock:
             init = float(self.config.get("flow_engine", {}).get("initial_flow", 50))
-            old = self._states.get(gid)
+            state_key = self._state_key(event)
+            old = self._states.get(state_key)
             if old:
                 self.accum.cancel_timer(old)
-            self._states[gid] = GroupState(
+            self._states[state_key] = GroupState(
                 flow_level=init, last_update_time=time.time(),
             )
         yield event.plain_result(f"已重置，心流={init:.0f}/100")
@@ -908,29 +969,29 @@ class HumanLikePlugin(Star):
         ai_kw = list(self.flow._ai_keywords) if hasattr(self.flow, '_ai_keywords') else []
         merged = list(self.flow._all_keywords()) if hasattr(self.flow, '_all_keywords') else manual
 
-        lines = [f"📋 当前关键词（共{len(merged)}个）："]
+        lines = [f"📋 当前话题偏好（共{len(merged)}个）："]
         if manual:
             lines.append(f"\n手动配置({len(manual)}): {', '.join(manual)}")
         if ai_kw:
             lines.append(f"\nAI生成({len(ai_kw)}): {', '.join(ai_kw)}")
         if not manual and not ai_kw:
-            lines.append("\n暂无关键词，使用 /genkeywords 生成")
+            lines.append("\n暂无话题偏好，使用 /genkeywords 生成")
         yield event.plain_result("".join(lines))
 
     @filter.command("genkeywords", priority=1)
     async def cmd_genkeywords(self, event: AstrMessageEvent):
-        """让 AI 根据当前人格生成感兴趣的关键词"""
+        """让 AI 根据当前人格生成话题偏好"""
         event.stop_event()
         if self._keywords_generating:
-            await event.send(event.plain_result("⏳ 关键词正在生成中，请稍候..."))
+            await event.send(event.plain_result("⏳ 话题偏好正在生成中，请稍候..."))
             return
-        await event.send(event.plain_result("🔄 正在根据人格设定生成关键词..."))
+        await event.send(event.plain_result("🔄 正在根据人格设定生成话题偏好..."))
         keywords = await self._gen_and_save_keywords(event)
         if keywords:
             enabled = self.config.get("reply_engine", {}).get("use_ai_keywords", False)
-            tip = "" if enabled else "\n（提示：AI关键词生成未启用，生成的关键词暂不参与匹配）"
+            tip = "" if enabled else "\n（提示：AI话题偏好未启用，生成结果暂不参与判断）"
             await event.send(event.plain_result(
-                f"✅ 已生成 {len(keywords)} 个关键词：\n" +
+                f"✅ 已生成 {len(keywords)} 个话题偏好：\n" +
                 "\n".join(f"  • {kw}" for kw in keywords) + tip
             ))
         else:
@@ -943,7 +1004,9 @@ class HumanLikePlugin(Star):
     async def _api_kw_list(self):
         manual = (self.config.get("interest_keywords", []) or [])[:]
         ai_kw = list(self.flow._ai_keywords) if hasattr(self.flow, '_ai_keywords') else []
-        return json_response({"manual": manual, "ai": ai_kw, "all": manual + ai_kw})
+        all_topics = list(self.flow._all_keywords()) if hasattr(self.flow, '_all_keywords') else manual + ai_kw
+        return json_response({"manual": manual, "ai": ai_kw, "all": all_topics,
+                              "local_boost": bool(self.config.get("flow_engine", {}).get("keyword_boost_enabled", False))})
 
     async def _api_kw_add(self):
         body = await request.json(default={})
@@ -958,8 +1021,8 @@ class HumanLikePlugin(Star):
         self.config["interest_keywords"] = manual
         try:
             self.config.save_config()
-        except Exception:
-            pass
+        except Exception as e:
+            return error_response(f"保存失败: {e}")
         self.flow._interest_keywords = manual
         return json_response({"ok": True, "keyword": kw})
 
@@ -967,14 +1030,16 @@ class HumanLikePlugin(Star):
         body = await request.json(default={})
         kw = (body.get("keyword") or "").strip()
         manual = self.config.get("interest_keywords", []) or []
-        if kw not in manual:
+        index = next((i for i, value in enumerate(manual)
+                      if str(value).strip().casefold() == kw.casefold()), None)
+        if index is None:
             return json_response({"ok": False, "message": "关键词不存在"})
-        manual.remove(kw)
+        manual.pop(index)
         self.config["interest_keywords"] = manual
         try:
             self.config.save_config()
-        except Exception:
-            pass
+        except Exception as e:
+            return error_response(f"保存失败: {e}")
         self.flow._interest_keywords = manual
         return json_response({"ok": True})
 
@@ -1057,6 +1122,7 @@ class HumanLikePlugin(Star):
                 return error_response("生成失败，请检查模型提供商配置")
 
             self.flow.set_ai_keywords(keywords)
+            self.ai.set_ai_topics(keywords)
             await self.put_kv_data("ai_keywords", keywords)
             logger.info(f"WebUI生成关键词 ({len(keywords)}个): {keywords[:10]}")
             return json_response({"ok": True, "keywords": keywords})
@@ -1079,6 +1145,7 @@ class HumanLikePlugin(Star):
             self.flow._interest_keywords = []
         elif target == "ai":
             self.flow.set_ai_keywords([])
+            self.ai.set_ai_topics([])
             await self.delete_kv_data("ai_keywords")
         return json_response({"ok": True})
 
@@ -1105,6 +1172,7 @@ class HumanLikePlugin(Star):
             state_items = list(self._states.items())
         for gid, s in state_items:
             async with s.lock:
+                self.flow.decay(s, now)
                 win = self.config.get("debounce", {}).get("reply_window_seconds", 300)
                 max_msgs = self.config.get("debounce", {}).get("max_replies_per_window", 12)
                 recent = len([t for t in s.reply_timestamps if now - t < win])
@@ -1120,6 +1188,12 @@ class HumanLikePlugin(Star):
                     "pending": len(s.pending_messages),
                     "context_len": len(s.conversation_context),
                     "proactive_today": proactive_cnt,
+                    "last_decision": s.last_decision,
+                    "last_decision_detail": s.last_decision_detail,
+                    "last_decision_ago": (
+                        int(now - s.last_decision_time)
+                        if s.last_decision_time > 0 else -1
+                    ),
                 })
         groups.sort(key=lambda g: -g["flow"])
         pc = self.config.get("proactive", {}) or {}

@@ -43,6 +43,7 @@ async function load() {
           <td>${esc(g.group_id)}</td>
           <td><div class="flow-row"><div class="flow-bar-wrap"><div class="flow-bar-fill ${cls}" style="width:${Math.min(100, g.flow)}%"></div></div><span class="flow-val">${g.flow.toFixed(0)}</span></div></td>
           <td>${agoStr(g.last_reply_ago)}</td>
+          <td>${decision(g)}</td>
           <td>${g.recent_replies}</td>
           <td style="color:${g.pending > 0 ? 'var(--terracotta)' : ''}">${g.pending > 0 ? "\u25cf " + g.pending : "\u2014"}</td>
         </tr>`;
@@ -68,6 +69,12 @@ function startTimer() {
 refreshBtn.onclick = () => { load(); startTimer(); };
 
 function esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
+function decision(g) {
+  if (!g.last_decision) return "暂无记录";
+  const detail = g.last_decision_detail ? ` · ${esc(g.last_decision_detail)}` : "";
+  const age = g.last_decision_ago >= 0 ? ` <small>(${agoStr(g.last_decision_ago)}前)</small>` : "";
+  return `${esc(g.last_decision)}${detail}${age}`;
+}
 
 load();
 startTimer();

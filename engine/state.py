@@ -35,6 +35,10 @@ class GroupState:
     reply_in_progress: bool = False
     # 主动发言时间戳列表，用于冷却与每日上限统计
     proactive_timestamps: list[float] = field(default_factory=list)
+    # 最近一次决策，供 Dashboard 解释“为什么回复/沉默”
+    last_decision: str = ""
+    last_decision_detail: str = ""
+    last_decision_time: float = 0.0
 
     def record_msg_time(self, ts: float):
         """记录一条群消息时间，并裁剪过期数据。"""

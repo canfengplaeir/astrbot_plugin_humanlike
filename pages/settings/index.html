@@ -33,11 +33,11 @@
           <span class="hint">回复写入对话历史</span>
         </div>
         <div class="field">
-          <label><span>AI关键词</span><input type="checkbox" name="reply_engine.use_ai_keywords" /></label>
-          <span class="hint">启用AI生成关键词</span>
+          <label><span>AI话题偏好</span><input type="checkbox" name="reply_engine.use_ai_keywords" /></label>
+          <span class="hint">启用AI生成话题偏好，辅助判断当前讨论是否相关</span>
         </div>
         <div class="field">
-          <label>关键词数量</label>
+          <label>话题偏好数量</label>
           <input type="number" name="reply_engine.keyword_count" min="3" max="30" class="inp" />
         </div>
       </div>
@@ -62,8 +62,12 @@
           <input type="range" name="flow_engine.flow_boost_mention" min="10" max="60" step="5" />
         </div>
         <div class="range-field">
-          <label>关键词加成 <output></output></label>
+          <label>话题偏好加成 <output></output></label>
           <input type="range" name="flow_engine.flow_boost_keyword" min="5" max="40" step="5" />
+        </div>
+        <div class="field">
+          <label><span>本地话题加成</span><input type="checkbox" name="flow_engine.keyword_boost_enabled" /></label>
+          <span class="hint">关闭时话题偏好只辅助 AI 判断，不会单独抬高心流</span>
         </div>
         <div class="range-field">
           <label>问句加成 <output></output></label>

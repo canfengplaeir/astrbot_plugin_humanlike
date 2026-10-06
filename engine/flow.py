@@ -79,14 +79,23 @@ class FlowEngine:
     def _all_keywords(self) -> list:
         """当前生效的全部关键词。
 
-        注意：AI 生成的关键词只有在 use_ai_keywords 开启时才参与匹配，
-        否则「AI关键词」开关关闭后旧关键词仍生效，与用户预期不符。
+        手动话题始终可用于匹配预览；AI 生成话题只有在 use_ai_keywords 开启时参与。
         """
-        merged = list(self._interest_keywords)
+        merged = []
+        seen = set()
+        for kw in self._interest_keywords:
+            text = str(kw).strip()
+            key = text.casefold()
+            if text and key not in seen:
+                seen.add(key)
+                merged.append(text)
         if self._reply_cfg.get("use_ai_keywords", False):
             for kw in self._ai_keywords:
-                if kw not in merged:
-                    merged.append(kw)
+                text = str(kw).strip()
+                key = text.casefold()
+                if text and key not in seen:
+                    seen.add(key)
+                    merged.append(text)
         return merged
 
     @property
@@ -96,14 +105,19 @@ class FlowEngine:
     def decay_rate(self) -> float:
         return float(self._cfg.get("flow_decay_rate", 0.15))
 
+    def decay(self, state, current_time: float) -> float:
+        """Advance natural flow decay even when no new message arrives."""
+        previous = state.last_update_time or current_time
+        elapsed = max(0.0, current_time - previous)
+        state.last_update_time = current_time
+        amount = elapsed * self.decay_rate()
+        state.flow_level = round(max(0.0, min(100.0, state.flow_level - amount)), 1)
+        return amount
+
     def update(self, state, event, message_text: str, current_time: float,
                persona_name: str = ""):
         """根据时间和消息内容更新心流值。"""
-        time_diff = current_time - state.last_update_time
-        state.last_update_time = current_time
-
-        decay = time_diff * self.decay_rate()
-        state.flow_level = max(0, state.flow_level - decay)
+        decay = self.decay(state, current_time)
 
         triggers = []
 
@@ -116,12 +130,15 @@ class FlowEngine:
             state.flow_level = min(100, state.flow_level + boost)
             triggers.append(f"名字+{boost:.0f}")
 
-        for kw in self._all_keywords():
-            if str(kw).lower() in message_text.lower():
-                boost = float(self._cfg.get("flow_boost_keyword", 15))
-                state.flow_level = min(100, state.flow_level + boost)
-                triggers.append(f"关键词+{boost:.0f}")
-                break
+        # 话题偏好默认只作为 AI 判断的上下文提示，不直接抬高心流。
+        # 需要兼容旧版启发式行为时，可显式打开 keyword_boost_enabled。
+        if self._cfg.get("keyword_boost_enabled", False):
+            for kw in self._all_keywords():
+                if str(kw).casefold() in message_text.casefold():
+                    boost = float(self._cfg.get("flow_boost_keyword", 15))
+                    state.flow_level = min(100, state.flow_level + boost)
+                    triggers.append(f"话题偏好+{boost:.0f}")
+                    break
 
         if "?" in message_text or "？" in message_text:
             boost = float(self._cfg.get("flow_boost_question", 25))
@@ -142,7 +159,7 @@ class FlowEngine:
         if decay > 0.5:
             logger.debug(
                 f"[群:{event.message_obj.group_id}] 心流衰减 {decay:.1f} "
-                f"(间隔={time_diff:.0f}s)"
+                f"(按时间推进)"
             )
         if triggers:
             logger.debug(

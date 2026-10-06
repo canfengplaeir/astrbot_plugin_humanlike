@@ -88,7 +88,13 @@
         "description": "关键词加成",
         "type": "int",
         "default": 18,
-        "hint": "消息包含感兴趣的关键词时增加的心流值"
+        "hint": "仅在启用本地话题加成时生效；默认话题偏好只作为AI上下文提示"
+      },
+      "keyword_boost_enabled": {
+        "description": "启用本地话题加成",
+        "type": "bool",
+        "default": false,
+        "hint": "开启后，命中话题偏好会直接增加心流；关闭时话题偏好只作为AI判断的上下文提示"
       },
       "flow_boost_question": {
         "description": "问句加成",
