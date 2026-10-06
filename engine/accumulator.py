@@ -4,7 +4,7 @@ import random
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api import logger
 
-from .flow import is_mentioned
+from .flow import is_mentioned, is_name_mention
 from .state import GroupState
 
 
@@ -32,7 +32,8 @@ class AccumulationManager:
             logger.debug("累积: @提及触发立即回复")
             return True
 
-        if persona_name and persona_name in (event.message_str or ""):
+        if persona_name and (persona_name in (event.message_str or "")
+                             or is_name_mention(event, persona_name)):
             logger.debug(f"累积: 名字'{persona_name}'触发立即回复")
             return True
 
@@ -44,11 +45,12 @@ class AccumulationManager:
         return False
 
     def add_to_buffer(self, state: GroupState, event: AstrMessageEvent,
-                      message_text: str, sender_name: str):
+                      message_text: str, sender_name: str, urgent: bool = False):
         state.pending_messages.append({
             "sender": sender_name or "未知",
             "text": message_text,
             "event": event,
+            "urgent": urgent,
         })
 
     def cancel_timer(self, state: GroupState):

@@ -1,3 +1,5 @@
+import re
+
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent
 
@@ -51,6 +53,21 @@ def is_direct_mention(event: AstrMessageEvent) -> bool:
     if has_at:
         return False
     return getattr(event, "is_at_or_wake_command", False)
+
+
+def is_name_mention(event: AstrMessageEvent, persona_name: str = "") -> bool:
+    """Detect QQ official's text-form mention when no At component is emitted.
+
+    QQ official can render ``@Display Name`` in message text while omitting an
+    At component. Only an exact name at the beginning of the message counts,
+    avoiding false positives for ordinary text that merely mentions the bot.
+    """
+    name = (persona_name or "").strip()
+    text = str(getattr(event, "message_str", "") or "").strip()
+    if not name or not text.startswith("@"):
+        return False
+    pattern = rf"^@\s*{re.escape(name)}(?=\s|$|[，。！？,.!?：:])"
+    return bool(re.match(pattern, text, flags=re.IGNORECASE))
 
 
 class FlowEngine:

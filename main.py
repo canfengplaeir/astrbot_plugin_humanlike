@@ -15,7 +15,7 @@ from astrbot.core.agent.message import (
 )
 
 from .engine import GroupState, FlowEngine, DebounceChecker, AccumulationManager
-from .engine.flow import is_direct_mention, is_mentioned
+from .engine.flow import is_direct_mention, is_mentioned, is_name_mention
 from .engine.state import MAX_CONTEXT
 from .ai import PersonaBridge, AIClient
 
@@ -365,10 +365,6 @@ class HumanLikePlugin(Star):
             f"{event.get_sender_name()}({sender_id}) | {msg_preview}"
         )
 
-        state_key = self._state_key(event)
-        state = await self._get_state(state_key)
-        # 被直接点名 → 必定回复：跳过 AI 判断与防抖（@全体不算点名）
-        mentioned = is_direct_mention(event)
         msg_text = event.message_str or ""
 
         # 排查日志：@ 检测详情（组件形态 / 平台标记 / 文本形态）。
@@ -406,6 +402,12 @@ class HumanLikePlugin(Star):
         if self.persona.enabled:
             persona_prompt = await self.persona.system_prompt(event)
             persona_name = await self.persona.name(event)
+
+        state_key = self._state_key(event)
+        state = await self._get_state(state_key)
+        # 被直接点名 → 必定回复：组件 @ 或 QQ 官方文本名称 @
+        # 均视为点名；@全体和正文提到名字不算直接点名。
+        mentioned = is_direct_mention(event) or is_name_mention(event, persona_name)
 
         if cfg.get("reply_engine", {}).get("use_ai_keywords", False):
             if (self.flow.has_ai_keywords is False and self._keywords_loaded
@@ -458,8 +460,18 @@ class HumanLikePlugin(Star):
             )
 
             if immediate and state.reply_in_progress:
-                # 已有回复正在生成：本条转为累积等待（或直接忽略），
-                # 防止同群两条几乎同时的立即触发消息并发生成两条回复
+                # 已有回复正在生成时，直接 @ 进入紧急队列，等待当前回复
+                # 完成后串行处理；不能降级成普通20秒沉默累积。
+                if mentioned:
+                    self.accum.add_to_buffer(
+                        state, event, ctx_text,
+                        event.get_sender_name() or "未知", urgent=True,
+                    )
+                    self.accum.cancel_timer(state)
+                    await self._start_retry_timer(state_key, state, delay=1)
+                    self._record_decision(state, "排队", "前一条回复生成中")
+                    self._stop_if_override(event)
+                    return
                 if not self.accum.enabled:
                     self._stop_if_override(event)
                     return
@@ -598,10 +610,11 @@ class HumanLikePlugin(Star):
     async def _on_silence_timeout(self, group_id: str):
         await self._run_batch_pipeline(group_id)
 
-    async def _start_retry_timer(self, group_id: str, state: GroupState):
+    async def _start_retry_timer(self, group_id: str, state: GroupState,
+                                 delay: float = 20):
 
         async def _retry():
-            await asyncio.sleep(20)
+            await asyncio.sleep(delay)
             await self._run_batch_pipeline(group_id)
 
         self.accum.cancel_timer(state)
@@ -617,8 +630,12 @@ class HumanLikePlugin(Star):
                 return
             if state.reply_in_progress:
                 # 立即回复正在生成：批处理延迟，避免同一时刻两条回复
-                logger.debug(f"[群:{group_id}] 立即回复进行中，批处理延迟20s")
-                await self._start_retry_timer(group_id, state)
+                urgent = bool(state.pending_messages[-1].get("urgent"))
+                delay = 1 if urgent else 20
+                logger.debug(
+                    f"[群:{group_id}] 立即回复进行中，批处理延迟{delay}s"
+                )
+                await self._start_retry_timer(group_id, state, delay=delay)
                 return
             state.pipeline_running = True
             pending = list(state.pending_messages)
@@ -628,7 +645,7 @@ class HumanLikePlugin(Star):
             if not last_event:
                 return
             # 批处理中若最后一条是直接点名（如防抖重试期间积压的 @），同样必定回复
-            mentioned = is_direct_mention(last_event)
+            mentioned = bool(pending[-1].get("urgent")) or is_direct_mention(last_event)
 
             if self.config.get("reply_engine", {}).get("debug", False):
                 logger.info(

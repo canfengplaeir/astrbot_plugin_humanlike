@@ -5,7 +5,7 @@ import time
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api import logger
 
-from ..engine.flow import is_direct_mention
+from ..engine.flow import is_direct_mention, is_name_mention
 
 # 文本形式的 @ 占位符（QQ 官方平台：<@openid> / <@!openid>）
 _TEXT_MENTION_RE = re.compile(r"<@!?([0-9A-Za-z_-]+)>")
@@ -132,17 +132,17 @@ class AIClient:
                 + "、".join(topics) + "\n") if topics else ""
 
     @staticmethod
-    def _mention_note(event: AstrMessageEvent) -> str:
+    def _mention_note(event: AstrMessageEvent, persona_name: str = "") -> str:
         """被直接点名时的提示语，用于让 LLM 明确感知「直接点名」这一事实。
 
         仅对点名机器人本人生效（@全体不算），与「必定回复」语义一致。
         """
-        if is_direct_mention(event):
+        if is_direct_mention(event) or is_name_mention(event, persona_name):
             return "【注意】你被 @ 了，原则上必须回复。\n\n"
         return ""
 
     @staticmethod
-    def _describe_mention(event: AstrMessageEvent) -> str:
+    def _describe_mention(event: AstrMessageEvent, persona_name: str = "") -> str:
         """解析消息中的 @ 并生成可读描述，如「@了你」「@了其他成员」「@全体成员」。
 
         覆盖两种形态：
@@ -168,6 +168,8 @@ class AIClient:
         text = event.message_str or ""
         if _TEXT_MENTION_RE.search(text):
             parts.append("@了其他成员")
+        if is_name_mention(event, persona_name):
+            parts.append("@了你")
         # 去重保序
         return "、".join(dict.fromkeys(parts))
 
@@ -188,7 +190,7 @@ class AIClient:
         return _TEXT_MENTION_RE.sub("@其他成员", text or "").strip()
 
     @classmethod
-    def _latest_line(cls, event: AstrMessageEvent) -> str:
+    def _latest_line(cls, event: AstrMessageEvent, persona_name: str = "") -> str:
         """构造「最新消息」描述行，完整还原 @ 归属，让 AI 分清谁在叫谁。
 
         示例：
@@ -199,7 +201,7 @@ class AIClient:
         """
         sender = event.get_sender_name() or "某人"
         text = cls._clean_text_mentions(event.message_str or "")
-        action = cls._describe_mention(event)
+        action = cls._describe_mention(event, persona_name)
         if action:
             if text:
                 return f"{sender} {action}：「{text}」"
@@ -287,7 +289,7 @@ class AIClient:
 
         try:
             ctx = "\n".join(f"[{m['sender']}]: {m['text']}" for m in context[-6:])
-            latest = self._latest_line(event)
+            latest = self._latest_line(event, persona_name)
             diag = (
                 f"[AI判断] 消息描述: {latest!r} | "
                 f"direct_mention={is_direct_mention(event)} "
@@ -303,7 +305,7 @@ class AIClient:
                 f"{MENTION_RULE}"
                 f"{self._topic_hint()}"
                 f"心流值：{flow_level:.0f}/100\n\n"
-                f"{self._mention_note(event)}"
+                f"{self._mention_note(event, persona_name)}"
                 f"最近群聊：\n{ctx or '（暂无）'}\n\n"
                 f"最新消息 — {latest}\n\n"
                 f"请只回复「发言」或「沉默」："
@@ -340,7 +342,7 @@ class AIClient:
                     persona_name: str = "") -> str:
         try:
             ctx = "\n".join(f"[{m['sender']}]: {m['text']}" for m in context[-8:])
-            diag = f"[AI回复] 消息描述: {self._latest_line(event)!r}"
+            diag = f"[AI回复] 消息描述: {self._latest_line(event, persona_name)!r}"
             if self._re_cfg.get("debug", False):
                 logger.info(f"[调试] {diag}")
             else:
@@ -351,7 +353,7 @@ class AIClient:
                 f"{self._style_line(flow_level)}"
                 f"心流值：{flow_level:.0f}/100\n\n"
                 f"最近群聊：\n{ctx}\n\n"
-                f"{self._latest_line(event)}\n\n"
+                f"{self._latest_line(event, persona_name)}\n\n"
                 f"回复："
             )
             pid = await self._provider_id(event)
@@ -389,7 +391,7 @@ class AIClient:
                 f"{MENTION_RULE}"
                 f"{self._topic_hint()}"
                 f"心流值：{flow_level:.0f}/100\n"
-                f"{self._mention_note(event)}"
+                f"{self._mention_note(event, persona_name)}"
                 f"【注意】以下是一段时间内累积的消息，请综合判断是否该参与。\n\n"
                 f"群聊记录：\n{ctx or '（暂无）'}\n\n"
                 f"请只回复「发言」或「沉默」："
@@ -431,7 +433,7 @@ class AIClient:
                 f"【行为指令】\n{self._reply_instructions()}\n\n"
                 f"{self._style_line(flow_level)}"
                 f"心流值：{flow_level:.0f}/100\n"
-                f"{self._mention_note(event)}"
+                f"{self._mention_note(event, persona_name)}"
                 f"【注意】以下是最近一段时间的群聊记录，请综合上下文后自然地参与讨论。\n\n"
                 f"群聊记录：\n{ctx}\n\n"
                 f"回复："
