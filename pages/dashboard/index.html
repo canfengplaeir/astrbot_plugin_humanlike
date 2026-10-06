@@ -157,18 +157,83 @@ tbody td small { display:block; color:var(--muted); font-weight:400; font-size:1
   .actions { flex-wrap:wrap; }
   .meta-bar { width:100%; flex-wrap:wrap; }
 }
+
+/* Control-room visual system */
+:root {
+  --bg: #e9eee9; --paper: #fbfcf8; --cream: #f3f6f1; --charcoal: #172a27;
+  --muted: #647570; --faint: #d5dfd9; --amber: #e47758; --amber-light: #f9e3dc;
+  --sage: #397c6b; --sage-light: #dcece6; --terracotta: #c9574d; --side-bg: #173b37;
+  --radius: 10px; --radius-sm: 6px;
+}
+[data-theme="dark"] { --bg:#102522; --paper:#17312d; --cream:#122a27; --charcoal:#e5f0ea; --muted:#9bb0a8; --faint:#31514a; --amber:#ef896c; --amber-light:#4b302a; --sage:#76c4a9; --sage-light:#21463e; --terracotta:#ef8172; --side-bg:#0b1d1b; }
+body { background: var(--bg); color:var(--charcoal); font-family: "Avenir Next", "PingFang SC", "Microsoft YaHei", sans-serif; letter-spacing: .005em; }
+.sidebar { width: 238px; background: var(--side-bg); color: #dcece6; border: 0; padding: 28px 18px; box-shadow: 12px 0 28px rgba(13,41,36,.12); }
+.brand-mark { display:flex; align-items:center; gap:11px; padding: 2px 10px 27px; border-bottom:1px solid rgba(220,236,230,.16); }
+.brand-mark > span { display:grid; place-items:center; width:36px; height:36px; background:var(--amber); color:#fff; font-weight:800; font-size:20px; border-radius:8px; }
+.brand-mark h3 { padding:0; margin:0; border:0; color:#f3faf6; font-size:17px; letter-spacing:.04em; }
+.brand-mark small { display:block; color:#91afa6; font-size:11px; margin-top:2px; }
+.nav-label { padding:28px 12px 8px; color:#75968d; font-size:10px; letter-spacing:.15em; }
+.sidebar a { color:#a9c1b8; border-radius:7px; margin:3px 0; padding:12px; gap:11px; }
+.sidebar a b { width:23px; color:#6f9288; font: 11px/1 "SF Mono", monospace; }
+.sidebar a:hover { color:#fff; background:rgba(255,255,255,.08); }
+.sidebar a.active { color:#fff; background:#28564e; box-shadow: inset 3px 0 var(--amber); }
+.sidebar a.active b { color:var(--amber); }
+.sidebar-foot { position:absolute; bottom:28px; padding:0 12px; color:#709087; font-size:11px; line-height:1.7; }
+.content { max-width:none; padding: 42px clamp(24px,5vw,76px) 70px; }
+.topbar { display:flex; align-items:flex-end; justify-content:space-between; gap:30px; max-width:1120px; margin:0 auto 38px; padding-bottom:24px; border-bottom:1px solid var(--faint); }
+.eyebrow { color:var(--sage); font: 10px/1 "SF Mono", monospace; letter-spacing:.16em; }
+.topbar h1 { margin-top:10px; font-size:30px; line-height:1.15; letter-spacing:-.04em; }
+.topbar-note { max-width:260px; color:var(--muted); font-size:12px; line-height:1.6; text-align:right; }
+.tab { max-width:1120px; margin:0 auto; }
+h2 { font-size:25px; letter-spacing:-.04em; }
+.subtitle { max-width:620px; margin-bottom:25px; }
+.card { background:var(--paper); border:1px solid var(--faint); border-radius:var(--radius); padding:22px 24px; box-shadow:0 4px 16px rgba(23,42,39,.045); }
+.card:hover { transform:none; box-shadow:0 8px 22px rgba(23,42,39,.08); }
+.card h3 { font-size:15px; letter-spacing:.01em; }
+.card .hint, .field .hint { color:var(--muted); }
+.field + .field, .range-field + .range-field { border-top:1px solid rgba(213,223,217,.7); }
+.btn { border-radius:6px; box-shadow:none; }
+.btn-primary { background:var(--charcoal); color:var(--paper); }
+.btn-primary:hover { background:var(--amber); }
+.btn-ghost { color:var(--sage); }
+.meta-bar { background:var(--paper); }
+table { min-width: 860px; }
+thead th { text-transform:none; letter-spacing:.02em; font-size:11px; }
+tbody td { padding:14px; }
+.flow-bar-fill.high { background:var(--amber); }
+.flow-bar-fill.mid { background:var(--sage); }
+.flow-bar-fill.low { background:#9aaba5; }
+.tag { border-radius:5px; }
+.tag.manual { background:var(--amber-light); color:var(--terracotta); }
+.tag.ai { background:var(--sage-light); color:var(--sage); }
+@media (max-width: 760px) {
+  .sidebar { padding:10px; }
+  .brand-mark { padding:0 6px 8px; border:0; }
+  .brand-mark > span { width:30px; height:30px; font-size:16px; }
+  .brand-mark h3 { font-size:14px; }
+  .sidebar .nav-label, .sidebar-foot { display:none; }
+  .sidebar a { padding:9px 10px; }
+  .sidebar a b { display:none; }
+  .topbar { display:block; margin-bottom:28px; padding-bottom:18px; }
+  .topbar-note { margin-top:12px; text-align:left; }
+  .topbar h1 { font-size:25px; }
+}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration:.01ms !important; transition-duration:.01ms !important; } }
   </style>
 </head>
 <body>
 
 <nav class="sidebar">
-  <h3>拟人化助手</h3>
-  <a data-tab="settings" class="active">⚙️ 插件设置</a>
-  <a data-tab="keywords">🏷️ 话题偏好</a>
-  <a data-tab="status">📊 状态面板</a>
+  <div class="brand-mark"><span>H</span><div><h3>Humanlike</h3><small>群聊参与控制室</small></div></div>
+  <div class="nav-label">工作区</div>
+  <a data-tab="settings" class="active"><b>01</b>行为设置</a>
+  <a data-tab="keywords"><b>02</b>话题偏好</a>
+  <a data-tab="status"><b>03</b>群聊状态</a>
+  <div class="sidebar-foot">让机器人知道什么时候<br>该加入谈话。</div>
 </nav>
 
 <div class="content">
+<header class="topbar"><div><span class="eyebrow">HUMANLIKE / CONTROL ROOM</span><h1>群聊参与控制室</h1></div><div class="topbar-note">决定何时出现，也决定何时保持安静。</div></header>
 <!-- ====== SETTINGS ====== -->
 <div class="tab active" id="tab-settings">
   <h2>插件设置</h2>
