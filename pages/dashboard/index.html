@@ -289,6 +289,11 @@ tbody td { padding:14px; }
       <div class="range-field"><label>最低心流 <output></output></label><input type="range" name="proactive.min_flow" min="0" max="80" step="5"></div>
       <div class="range-field"><label>每日上限(次) <output></output></label><input type="range" name="proactive.max_per_day" min="1" max="10" step="1"></div>
     </div>
+    <div class="card"><h3>图片理解</h3>
+      <div class="field"><label><span>启用图片理解</span><input type="checkbox" name="reply_engine.enable_image_understanding" checked></label><span class="hint">关闭后只处理文字与直接 @，不识别图片</span></div>
+      <div class="field"><label>图片转述模型</label><select name="reply_engine.image_description_provider_id" class="inp" id="imageProvider"><option value="">直接使用当前多模态聊天模型</option></select><span class="hint">留空直接看图；选择视觉模型后，先转述图片，再由原判断与聊天模型处理文字</span></div>
+      <div class="field"><label>图片转述超时(秒)</label><input type="number" name="ai_timeout.image_description_seconds" value="45" min="1" max="180" class="inp"></div>
+    </div>
     <div class="card"><h3>AI 调用</h3>
       <div class="field"><label>AI判断专用模型</label><select name="reply_engine.judge_provider_id" class="inp" id="judgeProvider"><option value="">加载中...</option></select><span class="hint">指定发言/沉默判断用的模型，留空使用默认聊天模型。推荐便宜快速的模型以降低成本</span></div>
       <div class="field"><label>判断超时(秒)</label><input type="number" name="ai_timeout.judge_seconds" min="5" max="120" class="inp"></div>
@@ -385,7 +390,12 @@ function setVal(path, val) {
   if (el.type === 'checkbox') { el.checked = !!val; }
   else if (el.type === 'range') { el.value = (val != null) ? val : (el.min || 0); el.dispatchEvent(new Event('input')); }
   else if (path === 'reply_engine.text_mention_names') { el.value = Array.isArray(val) ? val.join('\n') : (val != null ? val : ''); }
-  else { el.value = (val != null) ? val : ''; }
+  else {
+    if (el.tagName === 'SELECT' && val && !Array.from(el.options).some(o => o.value === String(val))) {
+      el.add(new Option(String(val) + '（当前配置）', String(val)));
+    }
+    el.value = (val != null) ? val : '';
+  }
 }
 async function loadSettings() {
   try {
@@ -404,6 +414,9 @@ async function loadSettings() {
 (async () => {
   try {
     const provs = await bridge.apiGet('providers');
+    const imageSel = document.getElementById('imageProvider');
+    imageSel.innerHTML = '<option value="">直接使用当前多模态聊天模型</option>' +
+      provs.map(p => `<option value="${attr(p.id)}">${esc(p.name)}</option>`).join('');
     const sel = document.getElementById('judgeProvider');
     sel.innerHTML = '<option value="">（默认聊天模型）</option>' +
       provs.map(p => `<option value="${attr(p.id)}">${esc(p.name)}</option>`).join('');

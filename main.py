@@ -372,7 +372,7 @@ class HumanLikePlugin(Star):
         )
 
         msg_text = event.message_str or ""
-        image_urls = AIClient.extract_image_urls(event)
+        image_urls, media_context = await self.ai.prepare_image_input(event)
         # Available before persona lookup; needed for diagnostics and media-only @.
         mentioned = is_direct_mention(event)
 
@@ -394,7 +394,7 @@ class HumanLikePlugin(Star):
         else:
             logger.debug(diag)
 
-        if not mentioned and not msg_text.strip() and not image_urls:
+        if not mentioned and not msg_text.strip() and not (image_urls or media_context):
             # 纯表情/语音等非文本、非图片消息：不参与对话、不触发 AI
             logger.debug(f"[群:{group_id}] 无文本消息，忽略")
             self._stop_if_override(event)
@@ -403,7 +403,9 @@ class HumanLikePlugin(Star):
         # 写入上下文/缓冲/历史的文本统一清洗 @ 占位符：
         # <@openid> → @其他成员（批处理路径的 AI 判断依赖上下文文本，
         # 若不清洗，AI 会再次看到 <@xxx> 而误以为被 @）
-        ctx_text = AIClient.message_text_with_media(event)
+        ctx_text = AIClient.message_text_with_media(
+            event, image_urls=image_urls, media_context=media_context
+        )
         if has_text_mention and cfg.get("reply_engine", {}).get("debug", False):
             logger.info(f"[调试] [群:{group_id}] 上下文清洗: {ctx_text[:60]!r}")
 
@@ -483,6 +485,7 @@ class HumanLikePlugin(Star):
                         state, event, ctx_text,
                         event.get_sender_name() or "未知", urgent=True,
                         image_urls=image_urls,
+                        media_context=media_context,
                     )
                     self.accum.cancel_timer(state)
                     await self._start_retry_timer(state_key, state, delay=1)
@@ -523,7 +526,8 @@ class HumanLikePlugin(Star):
                 if self.accum.enabled:
                     self.accum.add_to_buffer(state, event, ctx_text,
                                              event.get_sender_name() or "未知",
-                                             image_urls=image_urls)
+                                             image_urls=image_urls,
+                                             media_context=media_context)
                     state.retry_count = 0
                     self.accum.cancel_timer(state)
                     await self.accum.start_timer(state_key, state,
@@ -561,21 +565,25 @@ class HumanLikePlugin(Star):
                     return
 
         await self._run_immediate(event, state, flow_snap, ctx_snap,
-                                  persona_prompt, persona_name, mentioned)
+                                  persona_prompt, persona_name, mentioned,
+                                  image_urls, media_context)
 
     # ============================================================
     # 立即处理
     # ============================================================
 
     async def _run_immediate(self, event, state, flow_snap, ctx_snap,
-                             persona_prompt, persona_name, mentioned=False):
+                             persona_prompt, persona_name, mentioned=False,
+                             image_urls=None, media_context=None):
         try:
             if mentioned:
                 logger.info("被@提及 → 必定回复（跳过AI判断）")
             else:
                 logger.info(f"立即处理 | 心流={flow_snap:.0f} → AI判断...")
                 if not await self.ai.judge(event, flow_snap, ctx_snap,
-                                            persona_prompt, persona_name):
+                                            persona_prompt, persona_name,
+                                            image_urls=image_urls,
+                                            media_context=media_context):
                     logger.info("AI判断 → 沉默")
                     async with state.lock:
                         self._record_decision(state, "沉默", "AI判断为沉默")
@@ -584,7 +592,9 @@ class HumanLikePlugin(Star):
 
             logger.info("AI判断 → 发言 → 生成回复...")
             reply = await self.ai.reply(event, flow_snap, ctx_snap,
-                                         persona_prompt, persona_name)
+                                         persona_prompt, persona_name,
+                                         image_urls=image_urls,
+                                         media_context=media_context)
             if not reply:
                 logger.warning("回复生成失败（空内容）")
                 async with state.lock:
@@ -614,7 +624,11 @@ class HumanLikePlugin(Star):
                     reply,
                 )
 
-            await self._write_history(event, reply)
+            await self._write_history(
+                event, reply, user_message=AIClient.message_text_with_media(
+                    event, image_urls=image_urls, media_context=media_context
+                )
+            )
             self._stop_if_override(event)
         finally:
             # 无论成功/沉默/异常，都释放立即回复互斥标志
@@ -667,6 +681,11 @@ class HumanLikePlugin(Star):
                 for message in pending
                 for image_url in message.get("image_urls", [])
             ))
+            batch_media_context = "\n".join(
+                message.get("media_context", "")
+                for message in pending
+                if message.get("media_context")
+            ) or None
             # 批处理中若最后一条是直接点名（如防抖重试期间积压的 @），同样必定回复
             mentioned = bool(pending[-1].get("urgent")) or is_direct_mention(last_event)
 
@@ -725,7 +744,8 @@ class HumanLikePlugin(Star):
                 logger.info(f"[群:{group_id}] 批处理: 被@提及 → 必定回复（跳过AI判断）")
             elif not await self.ai.judge_batch(last_event, flow_snap, ctx_list,
                                                 persona_prompt, persona_name,
-                                                image_urls=batch_image_urls):
+                                                image_urls=batch_image_urls,
+                                                media_context=batch_media_context):
                 logger.info(f"[群:{group_id}] 批处理: AI判断→沉默")
                 async with state.lock:
                     self._record_decision(state, "沉默", "批量AI判断为沉默")
@@ -734,7 +754,8 @@ class HumanLikePlugin(Star):
             logger.info(f"[群:{group_id}] 批处理: AI判断→发言 → 生成...")
             reply = await self.ai.reply_batch(last_event, flow_snap, ctx_list,
                                                persona_prompt, persona_name,
-                                               image_urls=batch_image_urls)
+                                               image_urls=batch_image_urls,
+                                               media_context=batch_media_context)
             if not reply:
                 logger.warning(f"[群:{group_id}] 批处理: 回复生成失败")
                 async with state.lock:
@@ -1253,12 +1274,15 @@ class HumanLikePlugin(Star):
 
     async def _api_settings_get(self):
         return json_response({
-            "reply_engine": dict(self.config.get("reply_engine", {})),
+            "reply_engine": {"enable_image_understanding": True,
+                             "image_description_provider_id": "",
+                             **self.config.get("reply_engine", {})},
             "flow_engine": dict(self.config.get("flow_engine", {})),
             "debounce": dict(self.config.get("debounce", {})),
             "accumulation": dict(self.config.get("accumulation", {})),
             "proactive": dict(self.config.get("proactive", {})),
-            "ai_timeout": dict(self.config.get("ai_timeout", {})),
+            "ai_timeout": {"image_description_seconds": 45,
+                           **self.config.get("ai_timeout", {})},
             "interest_keywords": self.config.get("interest_keywords", []) or [],
             "ai_judge_prompt": self.config.get("ai_judge_prompt", ""),
             "ai_reply_prompt": self.config.get("ai_reply_prompt", ""),

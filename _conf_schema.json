@@ -44,7 +44,7 @@
         "description": "AI判断专用模型",
         "type": "string",
         "default": "",
-        "hint": "指定用于AI判断（发言/沉默）的模型提供商。留空则使用默认聊天模型。推荐使用便宜快速的模型以降低延迟和成本。含图片的消息会改用当前聊天模型判断，以保留视觉输入。",
+        "hint": "发言/沉默判断模型，留空使用当前聊天模型。直接多模态模式含图时使用聊天模型判断；图片转述模式仍使用此判断模型。",
         "_special": "select_provider"
       },
       "debug": {
@@ -58,6 +58,19 @@
         "type": "list",
         "default": [],
         "hint": "QQ官方未提供At组件时使用的机器人显示名，每行一个；填写后以此列表为准，留空时尝试当前人格名称"
+      },
+      "enable_image_understanding": {
+        "description": "启用图片理解",
+        "type": "bool",
+        "default": true,
+        "hint": "关闭后不发送图片进行识别，文字和直接 @ 仍按原规则处理。"
+      },
+      "image_description_provider_id": {
+        "description": "图片转述模型",
+        "type": "string",
+        "default": "",
+        "hint": "留空：当前多模态聊天模型直接看图。选择模型：由该视觉模型先转述图片，原判断和聊天模型只接收文字。",
+        "_special": "select_provider"
       }
     }
   },
@@ -267,6 +280,12 @@
         "type": "int",
         "default": 25,
         "hint": "主动发言时AI决定是否说话的思考超时"
+      },
+      "image_description_seconds": {
+        "description": "图片转述超时(秒)",
+        "type": "int",
+        "default": 45,
+        "hint": "独立视觉模型转述图片的超时时间，失败后不回退发送原图。"
       }
     }
   },
