@@ -372,6 +372,7 @@ class HumanLikePlugin(Star):
         )
 
         msg_text = event.message_str or ""
+        image_urls = AIClient.extract_image_urls(event)
         # Available before persona lookup; needed for diagnostics and media-only @.
         mentioned = is_direct_mention(event)
 
@@ -393,8 +394,8 @@ class HumanLikePlugin(Star):
         else:
             logger.debug(diag)
 
-        if not mentioned and not msg_text.strip():
-            # 纯图片/表情/语音等无文本消息：不参与对话、不触发 AI
+        if not mentioned and not msg_text.strip() and not image_urls:
+            # 纯表情/语音等非文本、非图片消息：不参与对话、不触发 AI
             logger.debug(f"[群:{group_id}] 无文本消息，忽略")
             self._stop_if_override(event)
             return
@@ -402,7 +403,7 @@ class HumanLikePlugin(Star):
         # 写入上下文/缓冲/历史的文本统一清洗 @ 占位符：
         # <@openid> → @其他成员（批处理路径的 AI 判断依赖上下文文本，
         # 若不清洗，AI 会再次看到 <@xxx> 而误以为被 @）
-        ctx_text = AIClient.clean_ctx_text(msg_text)
+        ctx_text = AIClient.message_text_with_media(event)
         if has_text_mention and cfg.get("reply_engine", {}).get("debug", False):
             logger.info(f"[调试] [群:{group_id}] 上下文清洗: {ctx_text[:60]!r}")
 
@@ -481,6 +482,7 @@ class HumanLikePlugin(Star):
                     self.accum.add_to_buffer(
                         state, event, ctx_text,
                         event.get_sender_name() or "未知", urgent=True,
+                        image_urls=image_urls,
                     )
                     self.accum.cancel_timer(state)
                     await self._start_retry_timer(state_key, state, delay=1)
@@ -520,7 +522,8 @@ class HumanLikePlugin(Star):
             else:
                 if self.accum.enabled:
                     self.accum.add_to_buffer(state, event, ctx_text,
-                                             event.get_sender_name() or "未知")
+                                             event.get_sender_name() or "未知",
+                                             image_urls=image_urls)
                     state.retry_count = 0
                     self.accum.cancel_timer(state)
                     await self.accum.start_timer(state_key, state,
@@ -659,6 +662,11 @@ class HumanLikePlugin(Star):
             last_event = pending[-1].get("event") if pending else None
             if not last_event:
                 return
+            batch_image_urls = list(dict.fromkeys(
+                image_url
+                for message in pending
+                for image_url in message.get("image_urls", [])
+            ))
             # 批处理中若最后一条是直接点名（如防抖重试期间积压的 @），同样必定回复
             mentioned = bool(pending[-1].get("urgent")) or is_direct_mention(last_event)
 
@@ -716,7 +724,8 @@ class HumanLikePlugin(Star):
             if mentioned:
                 logger.info(f"[群:{group_id}] 批处理: 被@提及 → 必定回复（跳过AI判断）")
             elif not await self.ai.judge_batch(last_event, flow_snap, ctx_list,
-                                                persona_prompt, persona_name):
+                                                persona_prompt, persona_name,
+                                                image_urls=batch_image_urls):
                 logger.info(f"[群:{group_id}] 批处理: AI判断→沉默")
                 async with state.lock:
                     self._record_decision(state, "沉默", "批量AI判断为沉默")
@@ -724,7 +733,8 @@ class HumanLikePlugin(Star):
 
             logger.info(f"[群:{group_id}] 批处理: AI判断→发言 → 生成...")
             reply = await self.ai.reply_batch(last_event, flow_snap, ctx_list,
-                                               persona_prompt, persona_name)
+                                               persona_prompt, persona_name,
+                                               image_urls=batch_image_urls)
             if not reply:
                 logger.warning(f"[群:{group_id}] 批处理: 回复生成失败")
                 async with state.lock:
@@ -917,7 +927,7 @@ class HumanLikePlugin(Star):
             # 写入历史前同样清洗 @ 占位符（批处理路径传入的 user_message 已清洗，
             # 立即路径的 event.message_str 在这里兜底清洗）
             msg_text = user_message if user_message is not None else \
-                AIClient.clean_ctx_text(event.message_str or "")
+                AIClient.message_text_with_media(event)
             mgr = self.context.conversation_manager
             cid = await mgr.get_curr_conversation_id(event.unified_msg_origin)
             if not cid:

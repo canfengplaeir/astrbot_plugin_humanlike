@@ -1,6 +1,9 @@
 import asyncio
+import inspect
+import os
 import re
 import time
+from urllib.parse import unquote, urlparse
 
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api import logger
@@ -64,12 +67,19 @@ class AIClient:
         except (TypeError, ValueError):
             return max(0.5, float(default))
 
-    async def _llm(self, pid: str, prompt: str, timeout: float) -> str:
-        """带超时地调用 LLM，返回文本；失败返回空串。"""
-        resp = await asyncio.wait_for(
-            self._ctx.llm_generate(chat_provider_id=pid, prompt=prompt),
-            timeout=timeout,
-        )
+    async def _llm(self, pid: str, prompt: str, timeout: float,
+                   image_urls: list[str] | None = None) -> str:
+        """带超时地调用 LLM；有图片时走 AstrBot provider 的多模态接口。"""
+        if image_urls:
+            provider = self._ctx.get_provider_by_id(provider_id=pid)
+            if inspect.isawaitable(provider):
+                provider = await provider
+            if provider is None:
+                raise RuntimeError(f"找不到模型提供商: {pid}")
+            call = provider.text_chat(prompt=prompt, image_urls=image_urls)
+        else:
+            call = self._ctx.llm_generate(chat_provider_id=pid, prompt=prompt)
+        resp = await asyncio.wait_for(call, timeout=timeout)
         return (resp.completion_text or "").strip()
 
     # ── prompt helpers ───────────────────────────────────────
@@ -187,6 +197,60 @@ class AIClient:
         return _TEXT_MENTION_RE.sub("", text or "").strip()
 
     @staticmethod
+    def extract_image_urls(event: AstrMessageEvent) -> list[str]:
+        """从 AstrBot 的消息链提取图片 URL 或本地缓存路径。
+
+        图片组件在不同平台适配器中可能提供 url、file 或 path；统一传给
+        AstrBot provider，由 provider 负责构造目标模型需要的多模态请求。
+        """
+        components = getattr(getattr(event, "message_obj", None), "message", None) or []
+        result: list[str] = []
+        seen: set[str] = set()
+        for component in components:
+            component_type = str(getattr(component, "type", "") or "").lower()
+            if type(component).__name__.lower() != "image" and component_type != "image":
+                continue
+
+            data = getattr(component, "data", None)
+            candidates = [
+                getattr(component, "url", None),
+                getattr(component, "file", None),
+                getattr(component, "path", None),
+            ]
+            if isinstance(data, dict):
+                candidates.extend(data.get(key) for key in ("url", "file", "path"))
+
+            for candidate in candidates:
+                if not isinstance(candidate, str):
+                    continue
+                value = candidate.strip()
+                if not value or value in seen:
+                    continue
+                parsed = urlparse(value)
+                if parsed.scheme in ("http", "https", "data"):
+                    result.append(value)
+                    seen.add(value)
+                    break
+                if parsed.scheme == "file":
+                    value = unquote(parsed.path)
+                # Ignore opaque adapter file IDs; the provider accepts local paths.
+                if os.path.isfile(value):
+                    result.append(value)
+                    seen.add(value)
+                    break
+        return result
+
+    @classmethod
+    def message_text_with_media(cls, event: AstrMessageEvent,
+                                clean_mentions: bool = True) -> str:
+        raw_text = event.message_str or ""
+        text = (cls.clean_ctx_text(raw_text) if clean_mentions
+                else cls._clean_text_mentions(raw_text))
+        if cls.extract_image_urls(event):
+            return f"{text} [附带图片]".strip()
+        return text
+
+    @staticmethod
     def clean_ctx_text(text: str) -> str:
         """把文本中的 <@openid> 替换为可读的「@其他成员」。
 
@@ -209,7 +273,7 @@ class AIClient:
         - 无 @：      「枫 说：「今晚吃饭吗」」
         """
         sender = event.get_sender_name() or "某人"
-        text = cls._clean_text_mentions(event.message_str or "")
+        text = cls.message_text_with_media(event, clean_mentions=False)
         action = cls._describe_mention(event, persona_name, aliases)
         if action:
             if text:
@@ -297,6 +361,7 @@ class AIClient:
             return flow_level >= self._flow_threshold() + 15
 
         try:
+            image_urls = self.extract_image_urls(event)
             ctx = "\n".join(f"[{m['sender']}]: {m['text']}" for m in context[-6:])
             aliases = self._mention_names()
             latest = self._latest_line(event, persona_name, aliases)
@@ -309,6 +374,10 @@ class AIClient:
                 logger.info(f"[调试] {diag}")
             else:
                 logger.debug(diag)
+            image_hint = (
+                "【图片】最新消息附带图片，请结合图片内容判断是否适合参与。\n"
+                if image_urls else ""
+            )
             prompt = (
                 f"{self._persona_block(persona_system_prompt, persona_name, short=True)}"
                 f"{self._judge_instructions()}\n"
@@ -316,17 +385,21 @@ class AIClient:
                 f"{self._topic_hint()}"
                 f"心流值：{flow_level:.0f}/100\n\n"
                 f"{self._mention_note(event, persona_name, aliases)}"
+                f"{image_hint}"
                 f"最近群聊：\n{ctx or '（暂无）'}\n\n"
                 f"最新消息 — {latest}\n\n"
                 f"请只回复「发言」或「沉默」："
             )
-            pid = await self._provider_id(event, for_judge=True)
+            # A separate judge model may be text-only; image messages use the
+            # selected chat model for both judgment and reply.
+            pid = await self._provider_id(event, for_judge=not bool(image_urls))
             if not pid:
                 return flow_level >= 80
 
             t0 = time.time()
             result = await self._llm(pid, prompt,
-                                     self._timeout("judge", 20))
+                                     self._timeout("judge", 20),
+                                     image_urls=image_urls)
             elapsed = (time.time() - t0) * 1000
 
             decision = self.parse_judge(result)
@@ -351,6 +424,7 @@ class AIClient:
                     persona_system_prompt: str = "",
                     persona_name: str = "") -> str:
         try:
+            image_urls = self.extract_image_urls(event)
             ctx = "\n".join(f"[{m['sender']}]: {m['text']}" for m in context[-8:])
             aliases = self._mention_names()
             diag = f"[AI回复] 消息描述: {self._latest_line(event, persona_name, aliases)!r}"
@@ -358,10 +432,15 @@ class AIClient:
                 logger.info(f"[调试] {diag}")
             else:
                 logger.debug(diag)
+            image_hint = (
+                "【图片】当前消息附带图片，请结合图片内容自然回复。\n"
+                if image_urls else ""
+            )
             prompt = (
                 f"{self._persona_block(persona_system_prompt, persona_name)}"
                 f"【行为指令】\n{self._reply_instructions()}\n\n"
                 f"{self._style_line(flow_level)}"
+                f"{image_hint}"
                 f"心流值：{flow_level:.0f}/100\n\n"
                 f"最近群聊：\n{ctx}\n\n"
                 f"{self._latest_line(event, persona_name, aliases)}\n\n"
@@ -373,7 +452,8 @@ class AIClient:
 
             t0 = time.time()
             raw = await self._llm(pid, prompt,
-                                  self._timeout("reply", 60))
+                                  self._timeout("reply", 60),
+                                  image_urls=image_urls)
             elapsed = (time.time() - t0) * 1000
             reply_text = self.clean_reply(raw)
             logger.debug(f"[AI回复] 生成完毕 ({elapsed:.0f}ms, {len(reply_text)}字)")
@@ -390,12 +470,18 @@ class AIClient:
     async def judge_batch(self, event: AstrMessageEvent, flow_level: float,
                           context: list[dict],
                           persona_system_prompt: str = "",
-                          persona_name: str = "") -> bool:
+                          persona_name: str = "",
+                          image_urls: list[str] | None = None) -> bool:
         if not self._re_cfg.get("enable_ai_judge", True):
             return flow_level >= self._flow_threshold() + 15
 
         try:
+            image_urls = image_urls if image_urls is not None else self.extract_image_urls(event)
             ctx = "\n".join(f"[{m['sender']}]: {m['text']}" for m in context[-10:])
+            image_hint = (
+                "【图片】群聊记录中标记为[附带图片]的消息含有图片，请结合图片判断。\n"
+                if image_urls else ""
+            )
             prompt = (
                 f"{self._persona_block(persona_system_prompt, persona_name, short=True)}"
                 f"{self._judge_instructions()}\n"
@@ -403,17 +489,20 @@ class AIClient:
                 f"{self._topic_hint()}"
                 f"心流值：{flow_level:.0f}/100\n"
                 f"{self._mention_note(event, persona_name, self._mention_names())}"
+                f"{image_hint}"
                 f"【注意】以下是一段时间内累积的消息，请综合判断是否该参与。\n\n"
                 f"群聊记录：\n{ctx or '（暂无）'}\n\n"
                 f"请只回复「发言」或「沉默」："
             )
-            pid = await self._provider_id(event, for_judge=True)
+            # See judge(): keep image interpretation on the vision-capable chat model.
+            pid = await self._provider_id(event, for_judge=not bool(image_urls))
             if not pid:
                 return flow_level >= 80
 
             t0 = time.time()
             result = await self._llm(pid, prompt,
-                                     self._timeout("judge", 20))
+                                     self._timeout("judge", 20),
+                                     image_urls=image_urls)
             elapsed = (time.time() - t0) * 1000
 
             decision = self.parse_judge(result)
@@ -436,13 +525,20 @@ class AIClient:
     async def reply_batch(self, event: AstrMessageEvent, flow_level: float,
                           context: list[dict],
                           persona_system_prompt: str = "",
-                          persona_name: str = "") -> str:
+                          persona_name: str = "",
+                          image_urls: list[str] | None = None) -> str:
         try:
+            image_urls = image_urls if image_urls is not None else self.extract_image_urls(event)
             ctx = "\n".join(f"[{m['sender']}]: {m['text']}" for m in context[-10:])
+            image_hint = (
+                "【图片】群聊记录中标记为[附带图片]的消息含有图片，请结合图片内容自然回复。\n"
+                if image_urls else ""
+            )
             prompt = (
                 f"{self._persona_block(persona_system_prompt, persona_name)}"
                 f"【行为指令】\n{self._reply_instructions()}\n\n"
                 f"{self._style_line(flow_level)}"
+                f"{image_hint}"
                 f"心流值：{flow_level:.0f}/100\n"
                 f"{self._mention_note(event, persona_name, self._mention_names())}"
                 f"【注意】以下是最近一段时间的群聊记录，请综合上下文后自然地参与讨论。\n\n"
@@ -455,7 +551,8 @@ class AIClient:
 
             t0 = time.time()
             raw = await self._llm(pid, prompt,
-                                  self._timeout("reply", 60))
+                                  self._timeout("reply", 60),
+                                  image_urls=image_urls)
             elapsed = (time.time() - t0) * 1000
             reply_text = self.clean_reply(raw)
             logger.debug(f"[AI批量回复] 生成完毕 ({elapsed:.0f}ms, {len(reply_text)}字)")

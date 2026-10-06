@@ -46,10 +46,12 @@ class AccumulationManager:
         return False
 
     def add_to_buffer(self, state: GroupState, event: AstrMessageEvent,
-                      message_text: str, sender_name: str, urgent: bool = False):
+                      message_text: str, sender_name: str, urgent: bool = False,
+                      image_urls: list[str] | None = None):
         state.pending_messages.append({
             "sender": sender_name or "未知",
             "text": message_text,
+            "image_urls": list(image_urls or []),
             "event": event,
             "urgent": urgent,
         })

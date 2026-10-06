@@ -8,11 +8,12 @@ desc: |
   - 参与意愿：结合群聊活跃度、消息节奏、@提及和话题偏好判断何时参与
   - 智能防抖：内置冷却时间和频率限制，避免刷屏
   - AI自主判断：结合LLM判断是否应该参与当前话题
+  - 图片理解：将群聊图片传入支持视觉输入的模型进行识别
   - 自然回复：AI生成的回复语气自然，不机械
   
   机器人不再是每条消息都回复的话痨，而是像人类一样有选择地参与对话。
 author: canfeng
-version: 1.7.2
+version: 1.8.0
 repo: https://github.com/canfengplaeir/astrbot_plugin_humanlike
 astrbot_version: ">=4.16"
 support_platforms:
