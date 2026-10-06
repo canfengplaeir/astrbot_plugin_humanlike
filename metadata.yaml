@@ -11,7 +11,7 @@ desc: |
   - 自然回复：AI生成的回复语气自然，不机械
   
   机器人不再是每条消息都回复的话痨，而是像人类一样有选择地参与对话。
-author: hdmm4
+author: canfeng
 version: 1.7.2
 repo: https://github.com/canfengplaeir/astrbot_plugin_humanlike
 astrbot_version: ">=4.16"
