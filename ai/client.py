@@ -20,6 +20,13 @@ MENTION_RULE = (
     "否则不需要理会；「@全体成员」按普通群消息对待。\n"
 )
 
+IMAGE_JUDGE_RULE = (
+    "【图片与表情包判断】图片和动图只用于理解消息语境，不代表群友在邀请你发言。"
+    "图片中的明确问题、任务或与当前讨论直接相关的内容可以作为发言理由；"
+    "单独发送的表情包、反应图或 GIF 默认倾向沉默，除非群友明确在等你回应，"
+    "或你能自然接上当前讨论。不要仅因为识别出了图片内容就选择发言。\n"
+)
+
 
 class AIClient:
     """AI 调用客户端：封装 LLM 判断与回复生成。"""
@@ -382,6 +389,7 @@ class AIClient:
                 f"{self._persona_block(persona_system_prompt, persona_name, short=True)}"
                 f"{self._judge_instructions()}\n"
                 f"{MENTION_RULE}"
+                f"{IMAGE_JUDGE_RULE if image_urls else ''}"
                 f"{self._topic_hint()}"
                 f"心流值：{flow_level:.0f}/100\n\n"
                 f"{self._mention_note(event, persona_name, aliases)}"
@@ -486,6 +494,7 @@ class AIClient:
                 f"{self._persona_block(persona_system_prompt, persona_name, short=True)}"
                 f"{self._judge_instructions()}\n"
                 f"{MENTION_RULE}"
+                f"{IMAGE_JUDGE_RULE if image_urls else ''}"
                 f"{self._topic_hint()}"
                 f"心流值：{flow_level:.0f}/100\n"
                 f"{self._mention_note(event, persona_name, self._mention_names())}"
